@@ -579,46 +579,7 @@ module EXT_RAM( input wire [31:0] d2, addr1 , addr2 ,
 
 	//initialize
  	initial begin
-//		$readmemh("./rv32ui-p-add.hex", mem);
-//		$readmemh("./rv32ui-p-addi.hex", mem);
-//		$readmemh("./rv32ui-p-and.hex", mem);
-//		$readmemh("./rv32ui-p-andi.hex", mem);
-//		$readmemh("./rv32ui-p-auipc.hex", mem);
-//		$readmemh("./rv32ui-p-beq.hex", mem);
-//		$readmemh("./rv32ui-p-bge.hex", mem);
-//		$readmemh("./rv32ui-p-bgeu.hex", mem);
-//		$readmemh("./rv32ui-p-blt.hex", mem);
-//		$readmemh("./rv32ui-p-bltu.hex", mem);
-//		$readmemh("./rv32ui-p-bne.hex", mem);
-//		$readmemh("./rv32ui-p-fence_i.hex", mem);
-//		$readmemh("./rv32ui-p-jal.hex", mem);
-//		$readmemh("./rv32ui-p-jalr.hex", mem);
-//		$readmemh("./rv32ui-p-lb.hex", mem);
-//		$readmemh("./rv32ui-p-lbu.hex", mem);
-//		$readmemh("./rv32ui-p-lh.hex", mem);
-//		$readmemh("./rv32ui-p-lhu.hex", mem);
-//		$readmemh("./rv32ui-p-lui.hex", mem);
-//		$readmemh("./rv32ui-p-lw.hex", mem);
-//		$readmemh("./rv32ui-p-or.hex", mem);
-//		$readmemh("./rv32ui-p-ori.hex", mem);
-//		$readmemh("./rv32ui-p-sb.hex", mem);
-//		$readmemh("./rv32ui-p-sh.hex", mem);
-//		$readmemh("./rv32ui-p-sll.hex", mem);
-//		$readmemh("./rv32ui-p-slli.hex", mem);
-//		$readmemh("./rv32ui-p-slt.hex", mem);
-//		$readmemh("./rv32ui-p-slti.hex", mem);
-//		$readmemh("./rv32ui-p-sltiu.hex", mem);
-//		$readmemh("./rv32ui-p-sltu.hex", mem);
-//		$readmemh("./rv32ui-p-sra.hex", mem);
-//		$readmemh("./rv32ui-p-srai.hex", mem);
-//		$readmemh("./rv32ui-p-srl.hex", mem);
-//		$readmemh("./rv32ui-p-srli.hex", mem);
-//		$readmemh("./rv32ui-p-sub.hex", mem);
-//		$readmemh("./rv32ui-p-sw.hex", mem);
-//		$readmemh("./rv32ui-p-xor.hex", mem);
-		$readmemh("./rv32ui-p-xori.hex", mem);
-
-	  //$readmemh("./test.hex", mem ); //program read from hex file
+	  $readmemh("./test.hex", mem ); //program read from hex file
 	end
 	
 endmodule
