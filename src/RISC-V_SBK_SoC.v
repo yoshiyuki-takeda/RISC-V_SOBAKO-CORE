@@ -1,11 +1,11 @@
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  蕎麦粉コア (Sobako Koa) Version 00 beta2
+  蕎麦粉コア (Sobako Koa) Version 00 beta3
   portability and Small size RISC-V core       # #         #        #     # #     RRRR   III   SSSS    CCCC   V     V
                                              #######    #######   # # #   # #     R   R   I   S    S  C    C  V    V
                                                # #         #      # # #  #   #    R   R   I   S       C       V   V
-  RISC-V suport ABI : RV32I                   #####      #####    # # #  #   #    RRRR    I    SSSS   C       V  V
+  RISC-V ABI suport : RV32I                   #####      #####    # # #  #   #    RRRR    I    SSSS   C       V  V
                                                #           #      # # #  #   #    R R     I        S  C       V V
   Copyright 2022-2023 yoshiyuki.takeda       #######   #########  # # # #     #   R  R    I   S    S  C    C  VV
                                               #   #        #        #   #     #   R   R  III   SSSS    CCCC   V
@@ -47,10 +47,12 @@
 
  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+`default_nettype none
+
 /* RV32I CPU core */
 module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] inst_data , PRDATA , 
 							 output wire [31:0] inst_addr , PADDR , PWDATA , 
-                             output wire PENABLE , PWRITE , PSEL , output wire [1:0] Awidth,
+                             output wire PENABLE , PWRITE , PSEL , s_ext , output wire [1:0] Awidth,
 							 output wire [14:0] outcode );
 	parameter RESET_VECTOR = 16'h0000;
 	parameter NMI_VECTOR = 32'h0000_1230;
@@ -159,7 +161,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	reg [4:0] q;
     reg sft_wait;
 	reg [31:0] shiftr;
-	wire [31:0] xd1,xd2,logic_op,ALU_out,ALU_add_sub,Others_xd,lms[0:3],s2_sel[0:2],xd2_sel[0:3],alu_sel[0:3];
+	wire [31:0] xd1,xd2,logic_op,ALU_out,ALU_add_sub,Others_xd,s2_sel[0:2],xd2_sel[0:3],alu_sel[0:3];//,lms[0:3]
 	wire [4:0] x2xd,x1xd;
 	wire [5:0] reg1addr,reg2addr;
 	wire [31:0] x1val,x2val,S2_ImmReg;//s2
@@ -217,8 +219,8 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE)?inst[11:7]:inst[24:20]} };
 	assign B_imm = { { 20{inst[31]} } , {inst[7]} , {inst[30:25]} , {inst[11:8]} , {1'b0} };
 	assign U_imm = { inst[31:12] , 12'h000 };
-	assign J_imm = { { 12{inst[31]} } , {inst[19:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
-//	assign J_imm = { { 14{inst[31]} }  , {inst[31]} , {inst[16:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
+//	assign J_imm = { { 12{inst[31]} } , {inst[19:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
+	assign J_imm = { { 14{inst[31]} }  , {inst[31]} , {inst[16:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
 	assign csr_addr[11:0] = inst[31:20];
 	assign csr_imm = { 27'd0 , inst[19:15] };
 
@@ -248,17 +250,11 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	//memory access circuit
 	assign PADDR = ALU_add_sub;
 	assign Awidth = ACC_Width;
+    assign s_ext = Load_sub;
 	assign PWDATA = x2;
     assign PWRITE  = (stg>'d1)&(CODE_STORE); //
     assign PSEL = addr_en;
-	assign PENABLE = (stg=='d3)&(CODE_STORE|CODE_LOAD);
-
-	//general register circuit 
-    // load data operation
-	assign lms[0] = { {24{Load_sub&PRDATA[7]}} ,{PRDATA[7:0]}  };
-	assign lms[1] = { {16{Load_sub&PRDATA[15]}},{PRDATA[15:0]} };
-	assign lms[2] = PRDATA;
-	assign lms[3] = PRDATA;
+	assign PENABLE = (stg=='d3)&(CODE_STORE|CODE_LOAD)&(~e_DataAddrMiss);
 
     //  latency or start trigger of sequential shifter
 	generate
@@ -356,7 +352,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign alu_sel[3] = {31'd0,cmp_us};
 
     assign Others_xd = ( (stg=='d5)? {NMI_S|INT_S,26'd0,Ecode} : ((stg<'d5)&CODE_LUI)? 32'd0 : inst_addr ) 
-                     + ( (stg>='d5) ? 32'd0 : (CODE_JAL) ? J_imm : (CODE_AUIPC|CODE_LUI) ? U_imm : 32'd4 );
+                                       + ( (stg>='d5) ? 32'd0 : (CODE_AUIPC|CODE_LUI) ? U_imm : 32'd4 );
 
 	generate
 		genvar i;
@@ -375,7 +371,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
     assign xd1 = XXd1_sel( e_DataAddrMiss , e_Inst , (stg<'d5)&CODE_CSR , PADDR , inst , csr_value  );
 
-	assign xd2_sel[3] = lms[ACC_Width];
+	assign xd2_sel[3] = PRDATA;//lms[ACC_Width];
 	assign xd2_sel[2] = ALU_out;
 	assign xd2_sel[1] = csr_nn;
 	assign xd2_sel[0] = Others_xd;
@@ -420,17 +416,16 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign cndtn[2'b11] = cmp_us;
     assign BRANCH_F = CODE_BRCH&(cndtn[BRCH_sub] == compliment) ;
 
-/*    assign pc_add_num = (CODE_BRCH)? 2'd2 : (CODE_JAL)? 2'd0 : 2'd1 ;
+    assign pc_add_num = (CODE_BRCH)? 2'd2 : (CODE_JAL)? 2'd0 : 2'd1 ;
     assign pc_add_sel[2] = B_imm[17:2];
     assign pc_add_sel[1] = 16'd1;
     assign pc_add_sel[0] = J_imm[17:2];
-	assign pc_calc_transfer = pc + pc_add_sel[pc_add_num];*/
-	assign pc_calc_transfer = pc + (CODE_BRCH)? B_imm[17:2] : 16'd1;
+	assign pc_calc_transfer = pc + pc_add_sel[pc_add_num];
 
     assign sel_pc = (stg>='d6) ? ( (NMI_int_en)? 2'd1 : //NMI
                                                  2'd3): //interrupt/except
                           (CODE_MRET|CODE_JALR)? 2'd3 : //MRET , x + i
-                            (CODE_JAL|BRANCH_F)? 2'd2 : //branch false(Others_xd,pc + 4)
+                                     (BRANCH_F)? 2'd2 : //branch false(Others_xd,pc + 4)
                                                  2'd0 ; //branch true(pc + b) , jal(pc + j) , pc + 4
 
 	assign sel_p[3] = ALU_add_sub[17:2]; /*mtvec,MRET,JALR*/
@@ -520,69 +515,72 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 endmodule
 
+//`define MEM_QUAD_SV
+//`define MEM_QUAD_V
 
 /* main memory */
-module EXT_RAM( input wire [31:0] d2, addr1 , addr2 , 
-                input wire clk, we, reset , 
-                input wire [1:0] bw,
-				output wire [31:0] q1 , q2 );
-	reg [31:0] md1,md2;
-	wire [31:0] din2;
-	wire we2;
-
+module EXT_RAM( input wire [31:0] d22, addr1 , addr2 , 
+                input wire clk, we2, reset , 
+                input wire [3:0] wstrb,
+				    output reg [31:0] q1 , q2 );
+   parameter MEM_SELECT_AQDD = 0;
 	wire [9:0] ad1,ad2;
-	reg [31:0] mem[0:1023];
 	assign ad1 = addr1[11:2];
 	assign ad2 = addr2[11:2];
 
-	assign q1 = md1; //assign q2 = md2;
-	assign we2 = we; //assign din2 = d2;
+	integer byte_no;
 
-	wire [7:0] qq2[3:0];
-	wire [7:0] dd2[3:0];
-	assign {qq2[3],qq2[2],qq2[1],qq2[0]} = md2;
-	assign q2[7:0] = qq2[addr2[1:0]];
-	assign q2[15:8] = addr2[1] ? qq2[3] : qq2[1];
-	assign q2[31:16] = {qq2[3],qq2[2]};
-
-	assign { dd2[3],dd2[2],dd2[1],dd2[0] } = d2;
-	assign din2 = wdata( bw , addr2[1:0] , dd2[0],dd2[1],dd2[2],dd2[3], qq2[0],qq2[1],qq2[2],qq2[3] );
-
-	function [31:0] wdata ( input [1:0] acc_width , addr10 , input [7:0] idd0,idd1,idd2,idd3 , iqq0,iqq1,iqq2,iqq3 );
-		case( acc_width )
-			2'd0 : begin
-					case(addr10)
-						2'd0 : wdata = { iqq3,iqq2,iqq1,idd0 } ;
-						2'd1 : wdata = { iqq3,iqq2,idd0,iqq0 } ;
-						2'd2 : wdata = { iqq3,idd0,iqq1,iqq0 } ;
-						2'd3 : wdata = { idd0,iqq2,iqq1,iqq0 } ;
-					endcase
-				end
-			2'd1 : begin 
-				case(addr10[1])
-						1'd0 : wdata = { iqq3,iqq2,idd1,idd0 } ;
-						1'd1 : wdata = { idd1,idd0,iqq1,iqq0 } ;
-					endcase
-				end
-			2'd2 : wdata = { idd3,idd2,idd1,idd0 };
-			2'd3 : wdata = { iqq3,iqq2,iqq1,iqq0 };
-		endcase
-	endfunction
-
+// Quad divided memory using SystemVerilog expression for intel quartus
+`ifdef MEM_QUAD_SV
+	reg [3:0][7:0] mem[0:1023];
 	always @(posedge clk) begin
-		md1 <= mem[ ad1 ];
-		md2 <= mem[ ad2 ];
-		if( we2 )begin
-			mem[ ad2 ] <= din2;
-		end
+		q1 <= mem[ ad1 ];
+		q2 <= mem[ ad2 ];
+		if( we2&wstrb[0] ) mem[ ad2 ][0] <= d22[ 0 +: 8];
+		if( we2&wstrb[1] ) mem[ ad2 ][1] <= d22[ 8 +: 8];
+		if( we2&wstrb[2] ) mem[ ad2 ][2] <= d22[16 +: 8];
+		if( we2&wstrb[3] ) mem[ ad2 ][3] <= d22[24 +: 8];
 	end
 
-	//initialize
- 	initial begin
-	  $readmemh("./test.hex", mem ); //program read from hex file
+// Quad dividec meory using Verilog expression
+`elsif MEM_QUAD_V
+	reg [31:0] mem[0:1023];
+	always @(posedge clk) begin
+		q1 <= mem[ ad1 ];
+		q2 <= mem[ ad2 ];
+		for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 )
+			if( we2&wstrb[byte_no] )
+				mem[ ad2 ][ 8*byte_no +: 8 ] <= d22[ 8*byte_no +: 8 ];
 	end
+
+// any verilog can compile
+`else
+	reg [31:0] mem[0:1023];
+	wire [7:0] din2[0:3];
+	wire [1:0] wea;
+	assign wea[0] = we2&(wstrb[1] | wstrb[0]);
+	assign wea[1] = we2&(wstrb[3] | wstrb[2]);
+
+	genvar byte_no2;
+	generate
+		for( byte_no2 = 0 ; byte_no2 < 4 ; byte_no2 = byte_no2 + 1 ) begin : mem_choice
+			assign din2[byte_no2] =   (wstrb[byte_no2]) ? d22[8*byte_no2 +: 8] : q2[8*byte_no2 +: 8];
+		end
+	endgenerate
+			
+	always @(posedge clk) begin
+		q1 <= mem[ ad1 ];
+		q2 <= mem[ ad2 ];
+		if( wea[0] ) mem[ ad2 ][ 0 +: 16] <= { din2[1] , din2[0] };
+		if( wea[1] ) mem[ ad2 ][16 +: 16] <= { din2[3] , din2[2] };
+	end
+`endif
+
+	initial begin  //memory initialize
+    	$readmemh( "./test.hex" , mem ); //program read from hex file
+	end //memory initial end 
 	
-endmodule
+endmodule 
 
 /* unified peripheral */
 module Super_IO ( input wire clk,reset ,  input wire pe , rdwr , cs , input wire [31:0] addr,
@@ -853,9 +851,11 @@ module suart_rx( input wire clk , rst , rd , rx_serial, output reg [7:0] buf_rx 
 endmodule
 
 /* data transfer control amang cpu,memory,peripherals */
-module bus_master( input wire [31:0] dataFp1,dataFp2 ,addrbus, 
-						 output wire [31:0] data2cpu , 
-						 input wire cs, output wire cs1,cs2 );
+module bus_master( input wire [31:0] dataFp1,dataFp2 ,addrbus, data_from_cpu ,
+						 output wire [31:0] data2cpu , data2Peri ,
+                         input wire [1:0] AWidth , input wire s_ext ,
+						 input wire cs, wr , output wire cs1,cs2 ,
+                         output wire [3:0] byte_write );
     // addr : 32'h0000_0000 - 32'h0000_0fff as RAM
     // addr : 32'h0001_0000 - 32'h0001_003f as Super_IO
 	wire chk1 = (addrbus[31:12] == 20'd0); // main memory
@@ -863,15 +863,45 @@ module bus_master( input wire [31:0] dataFp1,dataFp2 ,addrbus,
 	assign cs1 = cs & chk1;
 	assign cs2 = cs & chk2;
 
+    wire [7:0] qq[0:3];
+    wire [31:0] lms[0:3];
 	reg  [31:0] data_choice;
-    assign data2cpu = data_choice;
+    assign { qq[3] , qq[2] , qq[1] , qq[0] } = data_choice;
+    assign lms[0] = { {24{s_ext&lms[0][ 7]}} , { qq[addrbus[1:0]]} };
+    assign lms[1] = { {16{s_ext&lms[1][15]}} , { qq[{addrbus[1],1'b1}] , qq[{addrbus[1],1'b0}] } };
+    assign lms[2] = { qq[3] , qq[2] , qq[1] , qq[0] };
+    assign lms[3] = { qq[3] , qq[2] , qq[1] , qq[0] };
+    assign data2cpu = lms[AWidth];//data_choice;
 	always @(*) begin
 		case( { chk2,chk1 } )
-			2'b01 : data_choice <= dataFp1;
-			2'b10 : data_choice <= dataFp2;
+			2'b01 : data_choice <= dataFp1; //memory
+			2'b10 : data_choice <= dataFp2; // peripheral
 			default : data_choice <= 32'dx;
 		endcase
 	end
+
+    wire [31:0] sms[0:3];
+    assign sms[0] = { data_from_cpu[7:0] , data_from_cpu[7:0] , data_from_cpu[7:0] , data_from_cpu[7:0] };
+    assign sms[1] = { data_from_cpu[15:0] , data_from_cpu[15:0] };
+    assign sms[2] = data_from_cpu;
+    assign sms[3] = data_from_cpu;
+    assign data2Peri = sms[AWidth];
+
+    function [3:0] wstb_func( input wra , input [1:0] bwa , adl2 );
+        casex( {wra,bwa,adl2} )
+            5'b1_1000 : wstb_func = 4'b1111;
+            5'b1_0100 : wstb_func = 4'b0011;
+            5'b1_0110 : wstb_func = 4'b1100;
+            5'b1_0000 : wstb_func = 4'b0001;
+            5'b1_0001 : wstb_func = 4'b0010;
+            5'b1_0010 : wstb_func = 4'b0100;
+            5'b1_0011 : wstb_func = 4'b1000;
+            default   : wstb_func = 4'b0000;
+        endcase
+    endfunction
+
+    assign byte_write =  wstb_func( wr , AWidth , addrbus[1:0] );
+
 endmodule
 
 /* top module of minimum risc-v system */
@@ -882,8 +912,9 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 	wire	[31:0]	PRDATA1,PRDATA2;
 	wire			PSEL1,PSEL2,INT_S;
 	wire	[31:0]	inst_addr,inst_data;
-	wire	[31:0]	PADDR,PRDATA,PWDATA;
-	wire			PENABLE,PWRITE,PSEL;
+	wire	[31:0]	PADDR,PRDATA,PWDATA,PWDATA2;
+	wire			PENABLE,PWRITE,PSEL,sign_ext;
+    wire    [3:0]   PSTRB;
 	wire	[1:0]	data_width;
 	wire	[14:0]	opecode;
 
@@ -895,21 +926,22 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 	riscv32core_rv32i cpu1( .reset(reset), .clk(clock) , .NMI_S(1'b0) , .INT_S(INT_S) , 
 			  .inst_addr(inst_addr) , .inst_data(inst_data) ,  
 			  .PADDR(PADDR) , .PRDATA(PRDATA) , .PWDATA(PWDATA) ,
-			  .PENABLE(PENABLE) , .PWRITE(PWRITE) , .PSEL(PSEL) , .Awidth(data_width),
+			  .PENABLE(PENABLE) , .PWRITE(PWRITE) , .PSEL(PSEL) , .Awidth(data_width), .s_ext(sign_ext),
 			  .outcode(opecode) );
 
-	bus_master bm1( .addrbus(PADDR)  , 
+	bus_master bm1( .addrbus(PADDR)  , .data_from_cpu(PWDATA) , .data2Peri(PWDATA2),
 						 .data2cpu(PRDATA), .dataFp1(PRDATA1), .dataFp2(PRDATA2), 
+                         .AWidth(data_width) , .s_ext(sign_ext), .wr(PWRITE) , .byte_write(PSTRB),
 						 .cs(PSEL), .cs1(PSEL1), .cs2(PSEL2) );
 
 	EXT_RAM ram1(	.clk(clock) , .reset(reset) ,
 						.addr1(inst_addr) ,
 						.q1(inst_data) ,
 						.addr2(PADDR) , 
-						.d2(PWDATA),
+						.d22(PWDATA2),
 						.q2(PRDATA1),
-						.we(PENABLE & PSEL1 & PWRITE),
-                         .bw(data_width) );
+						.we2(PENABLE & PSEL1),
+                  .wstrb(PSTRB) );
 
 	Super_IO pripheral1(	.clk(clock),
 							.reset(reset) ,
@@ -921,6 +953,10 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 							.sw1(sw1),
 							.RGB_LED(LED_wrapper),
 							.LCD(LCD_out),
-                            .tx_serial_out(tx),
-                            .rx_serial_in(rx) );
+                     .tx_serial_out(tx),
+                     .rx_serial_in(rx) );
 endmodule
+
+
+
+
