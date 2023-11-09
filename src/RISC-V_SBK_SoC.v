@@ -1,7 +1,7 @@
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  蕎麦粉コア (Sobako Koa) Version 00 beta3
+  蕎麦粉コア (Sobako Koa) Version 00 beta4
   portability and Small size RISC-V core       # #         #        #     # #     RRRR   III   SSSS    CCCC   V     V
                                              #######    #######   # # #   # #     R   R   I   S    S  C    C  V    V
                                                # #         #      # # #  #   #    R   R   I   S       C       V   V
@@ -54,8 +54,10 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 							 output wire [31:0] inst_addr , PADDR , PWDATA , 
                              output wire PENABLE , PWRITE , PSEL , s_ext , output wire [1:0] Awidth,
 							 output wire [14:0] outcode );
-	parameter RESET_VECTOR = 16'h0000;
-	parameter NMI_VECTOR = 32'h0000_1230;
+
+	parameter RESET_VECTOR  = 32'h0000_0000;
+    parameter VALID_PC_WIDTH = 10;
+	parameter NMI_VECTOR    = 32'h0000_1230;
     parameter DEFAULT_MTVEC = 32'h0000_0050;
 	parameter SHIFT_SELECTOR = 0;
 	parameter SHIFT_LATENCY = 1;
@@ -147,14 +149,12 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	wire [31:0] SI_imm, B_imm, U_imm, J_imm ,csr_imm;
 	wire [11:0] csr_addr;
 
-	reg [15:0] pc;
+	reg [VALID_PC_WIDTH-1:0] pc;
 	reg [2:0]  stg;
 	wire cndtn[3:0];
 	wire BRANCH_F;
-	wire [15:0] pc_calc;
     wire exec_op;
-	wire [15:0] pc_calc_transfer,pc_add_sel[0:2];
-	wire [15:0] sel_p[0:3];
+	wire [VALID_PC_WIDTH-1:0] pc_calc,pc_calc_transfer,pc_add_sel[0:2],sel_p[0:3];
 	wire [1:0] sel_pc,pc_add_num;
 
 	reg [31:0] x1,x2;
@@ -219,8 +219,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE)?inst[11:7]:inst[24:20]} };
 	assign B_imm = { { 20{inst[31]} } , {inst[7]} , {inst[30:25]} , {inst[11:8]} , {1'b0} };
 	assign U_imm = { inst[31:12] , 12'h000 };
-//	assign J_imm = { { 12{inst[31]} } , {inst[19:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
-	assign J_imm = { { 14{inst[31]} }  , {inst[31]} , {inst[16:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
+	assign J_imm = { { 12{inst[31]} } , {inst[19:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
 	assign csr_addr[11:0] = inst[31:20];
 	assign csr_imm = { 27'd0 , inst[19:15] };
 
@@ -253,8 +252,10 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
     assign s_ext = Load_sub;
 	assign PWDATA = x2;
     assign PWRITE  = (stg>'d1)&(CODE_STORE); //
+    //assign PWRITE  = (~CODE_LOAD) & addr_en; //
     assign PSEL = addr_en;
-	assign PENABLE = (stg=='d3)&(CODE_STORE|CODE_LOAD)&(~e_DataAddrMiss);
+	//assign PENABLE = (stg=='d3)&(CODE_STORE|CODE_LOAD)&(~e_DataAddrMiss);
+	assign PENABLE = (stg=='d3)& addr_en &(~e_DataAddrMiss);
 
     //  latency or start trigger of sequential shifter
 	generate
@@ -367,11 +368,12 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
     assign we_reg = ( (stg=='d1)&(CODE_AUIPC|CODE_LUI|CODE_JAL) )
                   | ( (stg=='d2)&( ((~stillshift)&(~fsft)&(CODE_ALUR|CODE_ALUI)) | CODE_JALR ) )
                   | ( (stg=='d3)&CODE_LOAD) ;
+
 	assign we_csr =   (stg=='d2)&CODE_CSR;
 
     assign xd1 = XXd1_sel( e_DataAddrMiss , e_Inst , (stg<'d5)&CODE_CSR , PADDR , inst , csr_value  );
 
-	assign xd2_sel[3] = PRDATA;//lms[ACC_Width];
+	assign xd2_sel[3] = PRDATA;
 	assign xd2_sel[2] = ALU_out;
 	assign xd2_sel[1] = csr_nn;
 	assign xd2_sel[0] = Others_xd;
@@ -380,12 +382,12 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	assign x1xd = ( we_csr ) ? rd : rs1;
 	assign reg1en = (stg=='d5) | (we_csr&(x1xd>'d0));
-    assign reg1addr = (stg>='d6)? 6'h20 : (stg=='d5)? 6'h22 : (CODE_MRET) ? 6'h21 : {1'b0,x1xd};
+    assign reg1addr = (stg>='d6)? 6'h20 : (stg=='d5)? 6'h22 : ((stg<'d5)&CODE_MRET) ? 6'h21 : {1'b0,x1xd};
     assign x1val= xd1;
 
 	assign x2xd = ( we_reg ) ? rd : rs2;
 	assign reg2en = (we_csr&(csr_num<='d1)) | (we_reg&(x2xd>'d0)) | (stg=='d6) | (stg=='d5); 
-    assign reg2addr = (stg=='d6)? 6'h21 : (stg=='d5)? 6'h23 : (CODE_CSR)? {2'b10,csr_num[3:0]} : {1'b0,x2xd} ;
+    assign reg2addr = (stg=='d6)? 6'h21 : (stg=='d5)? 6'h23 : ((stg<'d5)&CODE_CSR)? {2'b10,csr_num[3:0]} : {1'b0,x2xd} ;
     assign x2val= xd2;
 
     always @(posedge clk) begin
@@ -408,7 +410,8 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
     end
 	
 	//program counter circuit
-	assign inst_addr = {14'd0,pc,2'd0};
+	//assign inst_addr = {14'd0,pc,2'd0};
+	assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-((VALID_PC_WIDTH < 30)? 2:1))]  , pc , 2'd0};
 
 	assign cndtn[2'b00] = ~(|ALU_add_sub); // x1 == x2;  
 	assign cndtn[2'b01] = 1'bx;
@@ -417,9 +420,9 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
     assign BRANCH_F = CODE_BRCH&(cndtn[BRCH_sub] == compliment) ;
 
     assign pc_add_num = (CODE_BRCH)? 2'd2 : (CODE_JAL)? 2'd0 : 2'd1 ;
-    assign pc_add_sel[2] = B_imm[17:2];
-    assign pc_add_sel[1] = 16'd1;
-    assign pc_add_sel[0] = J_imm[17:2];
+    assign pc_add_sel[2] = B_imm[2 +: VALID_PC_WIDTH];
+    assign pc_add_sel[1] = { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} }  ;
+    assign pc_add_sel[0] = J_imm[2 +: VALID_PC_WIDTH];
 	assign pc_calc_transfer = pc + pc_add_sel[pc_add_num];
 
     assign sel_pc = (stg>='d6) ? ( (NMI_int_en)? 2'd1 : //NMI
@@ -428,9 +431,9 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
                                      (BRANCH_F)? 2'd2 : //branch false(Others_xd,pc + 4)
                                                  2'd0 ; //branch true(pc + b) , jal(pc + j) , pc + 4
 
-	assign sel_p[3] = ALU_add_sub[17:2]; /*mtvec,MRET,JALR*/
-	assign sel_p[2] = Others_xd[17:2]; /* branch false */
-	assign sel_p[1] = NMI_VECTOR[17:2];
+	assign sel_p[3] = ALU_add_sub[2 +: VALID_PC_WIDTH]; /*mtvec,MRET,JALR*/
+	assign sel_p[2] = Others_xd[2 +: VALID_PC_WIDTH]; /* branch false */
+	assign sel_p[1] = NMI_VECTOR[2 +: VALID_PC_WIDTH];
 	assign sel_p[0] = pc_calc_transfer; /*Branch true , Jal , pc+4*/
 	assign pc_calc = sel_p[sel_pc];
 
@@ -438,7 +441,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	always @( posedge clk or negedge reset ) begin
 		if( ~reset )
-			pc <= RESET_VECTOR;
+			pc <= RESET_VECTOR[ 2 +: VALID_PC_WIDTH ]; // bit2 -> bit17
 		else
 		begin
 			if( (stg == 'd7) | exec_op )
@@ -454,7 +457,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 			if( exec_op )
 				stg <= 'd0;
 			else
-				stg <= ( ((stg<'d4)&Jump_e&(~exec_op))? 3'd4 : stg ) + ( ( (~Jump_e)&(stillshift|fsft) ) ? 3'd0 : 3'd1 );
+				stg <= ( ((stg<'d5)&Jump_e&(~exec_op))? 3'd4 : stg ) + ( ( (~Jump_e)&(stillshift|fsft) ) ? 3'd0 : 3'd1 );
 		end
 	end
 
@@ -523,16 +526,17 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
                 input wire clk, we2, reset , 
                 input wire [3:0] wstrb,
 				    output reg [31:0] q1 , q2 );
-   parameter MEM_SELECT_AQDD = 0;
-	wire [9:0] ad1,ad2;
-	assign ad1 = addr1[11:2];
-	assign ad2 = addr2[11:2];
+
+    parameter INST_ADDR_WIDTH = 10;
+	wire [INST_ADDR_WIDTH-1:0] ad1,ad2;
+	assign ad1 = addr1[2 +: INST_ADDR_WIDTH];
+	assign ad2 = addr2[2 +: INST_ADDR_WIDTH];
 
 	integer byte_no;
 
 // Quad divided memory using SystemVerilog expression for intel quartus
 `ifdef MEM_QUAD_SV
-	reg [3:0][7:0] mem[0:1023];
+	reg [3:0][7:0] mem[0:2**INST_ADDR_WIDTH - 1];
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
 		q2 <= mem[ ad2 ];
@@ -544,7 +548,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 
 // Quad dividec meory using Verilog expression
 `elsif MEM_QUAD_V
-	reg [31:0] mem[0:1023];
+	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1];
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
 		q2 <= mem[ ad2 ];
@@ -555,7 +559,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 
 // any verilog can compile
 `else
-	reg [31:0] mem[0:1023];
+	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1];
 	wire [7:0] din2[0:3];
 	wire [1:0] wea;
 	assign wea[0] = we2&(wstrb[1] | wstrb[0]);
@@ -858,7 +862,9 @@ module bus_master( input wire [31:0] dataFp1,dataFp2 ,addrbus, data_from_cpu ,
                          output wire [3:0] byte_write );
     // addr : 32'h0000_0000 - 32'h0000_0fff as RAM
     // addr : 32'h0001_0000 - 32'h0001_003f as Super_IO
-	wire chk1 = (addrbus[31:12] == 20'd0); // main memory
+	parameter RESET_VECTOR  = 32'h0000_0000;
+    parameter INST_ADDR_WIDTH = 10;
+	wire chk1 = (addrbus[31:INST_ADDR_WIDTH+2] == RESET_VECTOR[31:INST_ADDR_WIDTH+2]); // main memory
 	wire chk2 = (addrbus[31:6]  == 26'h000_0400); // unified peripheral
 	assign cs1 = cs & chk1;
 	assign cs2 = cs & chk2;
@@ -909,6 +915,9 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 				output wire [2:0] FullColor_LED
                 ,output wire [6:0] LCD_out );
 
+    parameter INSTRUCTION_RESET_VECTOR = 32'h0000_0000;
+    parameter INSTRUCTION_ADDRESS_WIDTH = 10;
+    
 	wire	[31:0]	PRDATA1,PRDATA2;
 	wire			PSEL1,PSEL2,INT_S;
 	wire	[31:0]	inst_addr,inst_data;
@@ -923,18 +932,21 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 
     assign  FullColor_LED[2:0] = LED_wrapper[2:0];
 
-	riscv32core_rv32i cpu1( .reset(reset), .clk(clock) , .NMI_S(1'b0) , .INT_S(INT_S) , 
+	riscv32core_rv32i #( .RESET_VECTOR(INSTRUCTION_RESET_VECTOR) , .VALID_PC_WIDTH(INSTRUCTION_ADDRESS_WIDTH) ) 
+        cpu1( .reset(reset), .clk(clock) , .NMI_S(1'b0) , .INT_S(INT_S) , 
 			  .inst_addr(inst_addr) , .inst_data(inst_data) ,  
 			  .PADDR(PADDR) , .PRDATA(PRDATA) , .PWDATA(PWDATA) ,
 			  .PENABLE(PENABLE) , .PWRITE(PWRITE) , .PSEL(PSEL) , .Awidth(data_width), .s_ext(sign_ext),
 			  .outcode(opecode) );
 
-	bus_master bm1( .addrbus(PADDR)  , .data_from_cpu(PWDATA) , .data2Peri(PWDATA2),
+	bus_master       #( .RESET_VECTOR(INSTRUCTION_RESET_VECTOR) , .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) ) 
+                    bm1( .addrbus(PADDR)  , .data_from_cpu(PWDATA) , .data2Peri(PWDATA2),
 						 .data2cpu(PRDATA), .dataFp1(PRDATA1), .dataFp2(PRDATA2), 
                          .AWidth(data_width) , .s_ext(sign_ext), .wr(PWRITE) , .byte_write(PSTRB),
 						 .cs(PSEL), .cs1(PSEL1), .cs2(PSEL2) );
 
-	EXT_RAM ram1(	.clk(clock) , .reset(reset) ,
+	EXT_RAM  #( .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) ) 
+                 ram1(  .clk(clock) , .reset(reset) ,
 						.addr1(inst_addr) ,
 						.q1(inst_data) ,
 						.addr2(PADDR) , 
