@@ -1,7 +1,7 @@
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  蕎麦粉コア (Sobako Koa) Version 00 beta4
+  蕎麦粉コア (Sobako Koa) Version 00
   portability and Small size RISC-V core       # #         #        #     # #     RRRR   III   SSSS    CCCC   V     V
                                              #######    #######   # # #   # #     R   R   I   S    S  C    C  V    V
                                                # #         #      # # #  #   #    R   R   I   S       C       V   V
@@ -411,7 +411,8 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	
 	//program counter circuit
 	//assign inst_addr = {14'd0,pc,2'd0};
-	assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-((VALID_PC_WIDTH < 30)? 2:1))]  , pc , 2'd0};
+	//assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-((VALID_PC_WIDTH < 30)? 2:1))]  , pc , 2'd0};
+	assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-2)]  , pc , 2'd0};
 
 	assign cndtn[2'b00] = ~(|ALU_add_sub); // x1 == x2;  
 	assign cndtn[2'b01] = 1'bx;
@@ -518,7 +519,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 endmodule
 
-//`define MEM_QUAD_SV
+`define MEM_QUAD_SV
 //`define MEM_QUAD_V
 
 /* main memory */
@@ -581,7 +582,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 `endif
 
 	initial begin  //memory initialize
-    	$readmemh( "./test.hex" , mem ); //program read from hex file
+		$readmemh( "./test.hex" , mem ); //program read from hex file
 	end //memory initial end 
 	
 endmodule 
@@ -916,7 +917,7 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
                 ,output wire [6:0] LCD_out );
 
     parameter INSTRUCTION_RESET_VECTOR = 32'h0000_0000;
-    parameter INSTRUCTION_ADDRESS_WIDTH = 10;
+    parameter INSTRUCTION_ADDRESS_WIDTH = 16;
     
 	wire	[31:0]	PRDATA1,PRDATA2;
 	wire			PSEL1,PSEL2,INT_S;
