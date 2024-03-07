@@ -207,12 +207,16 @@ module SimpleFIFO
 			  input wire [FIFO_DATA_WIDTH-1:0] in_data , output reg [FIFO_DATA_WIDTH-1:0] out_data );
 	reg [FIFO_DATA_WIDTH-1:0] mem[0:2**FIFO_DEPTH-1];
 	reg [FIFO_DEPTH:0] rd_addr,wr_addr;
+	reg empty_shift;
+	wire  current_enpty;
 
 	assign fifo_gauge = wr_addr - rd_addr;
-	assign empty = (fifo_gauge == 0);
+	assign current_enpty = (fifo_gauge == 0);
+	assign empty = current_enpty | empty_shift;
 	assign full = fifo_gauge[FIFO_DEPTH];//(fifo_gauge == (2**FIFO_DEPTH-1));
 
 	always @( posedge clk or negedge rst ) begin
+		empty_shift <= current_enpty;
 		if( ~rst ) { rd_addr , wr_addr } <= 0;
 		else if( clr ) { rd_addr , wr_addr } <= 0;
 		else begin
@@ -232,7 +236,6 @@ module SimpleFIFO
 endmodule
 
 
-
 /* Simple UART send data */
 module UART_TX_A
 			#( parameter UART_DIV_WIDTH = 8 , FIFO_SIZE = 6 ) //parameter UART_DIV = 8'd234; //(27MHz/115200boud)
@@ -243,7 +246,7 @@ module UART_TX_A
 	reg [8:0] tx_sreg; // send data
 	reg [UART_DIV_WIDTH-1:0] div_count;  // uart send timing tick
 	reg [3:0] send_count; // counting how many bits send
-	reg  parity_bit,empty_shift;
+	reg  parity_bit;
 	wire buf_enpty,data_set,tx_active,div_count0;
 	wire [7:0] tdata;
 	wire parity_point = parity & ((4'd2 + {3'd0,stopbit}) == send_count) ;
@@ -251,11 +254,10 @@ module UART_TX_A
 	assign tx_serial = tx_sreg[0];
 	assign tx_active = (send_count > 0);
 	assign div_count0 = (div_count==0);
-	assign data_set = ~empty_shift && ~tx_active && ~(cts&auto_flow) && div_count0;
+	assign data_set = ~buf_enpty && ~tx_active && ~(cts&auto_flow) && div_count0;
 	assign tx_int = ~tx_full & tx_int_en;
 
 	always @( posedge clk or negedge rst ) begin 
-		empty_shift <= buf_enpty;
 		if( ~rst ) begin
 			div_count <= 0;
 			send_count <= 0;
