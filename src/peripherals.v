@@ -199,6 +199,34 @@ module Random_A (input wire clk, rst, we, rd, input wire [15:0] rand_init, outpu
 		end
 endmodule
 
+/* simple single port RAM */
+module SimpleSinglePortRAM
+			#( parameter RAM_DEPTH = 6 , parameter RAM_WIDTH = 8 )
+			( input wire clk, cs, wr, rd, output reg [RAM_WIDTH-1:0] rd_data, input wire [RAM_WIDTH-1:0] wr_data, input wire[RAM_DEPTH-1:0] addr);
+	reg [RAM_WIDTH-1:0] mem[0:2**RAM_DEPTH-1];
+	
+	always @( posedge clk ) begin
+		rd_data <= mem[addr];
+		if(cs&wr) mem[addr] <= wr_data;
+	end
+endmodule
+
+/* simple dual port RAM */
+module SimpleDualPortRAM
+			#( parameter RAM_DEPTH = 6 , parameter RAM_WIDTH = 8 )
+			( input wire clk1,clk2, cs1,cs2, wr1,wr2, rd1,rd2, input wire[RAM_DEPTH-1:0] addr1,addr2 ,
+			  output reg [RAM_WIDTH-1:0] rd_data1,rd_data2, input wire [RAM_WIDTH-1:0] wr_data1,wr_data2 );
+	reg [RAM_WIDTH-1:0] mem[0:2**RAM_DEPTH-1];
+	
+	always @( posedge clk1 ) begin
+		rd_data1 <= mem[addr1];
+		if(cs1&wr1) mem[addr1] <= wr_data1;
+	end
+	always @( posedge clk2 ) begin
+		rd_data2 <= mem[addr2];
+		if(cs2&wr2) mem[addr2] <= wr_data2;
+	end
+endmodule
 
 /* Simple Synchronus FIFO with RAM */
 module SimpleFIFO
@@ -232,9 +260,49 @@ module SimpleFIFO
 		for ( k1=0 ; k1 < 2**FIFO_DEPTH ; k1 = k1 + 1 ) 
 			mem[k1] = 0;
 	end
-	
 endmodule
 
+/* Simple Asynchronus FIFO with RAM */
+module SimpleFIFO_Async
+			#(parameter FIFO_DEPTH = 6 , parameter FIFO_DATA_WIDTH = 9)
+			( input wire rst, clr, i_clk, i_wr, o_clk, o_rd,  output wire [FIFO_DEPTH:0] i_fifo_gauge, o_fifo_gauge, output wire full, empty,
+			  input wire [FIFO_DATA_WIDTH-1:0] i_data , output reg [FIFO_DATA_WIDTH-1:0] o_data );
+	reg [FIFO_DATA_WIDTH-1:0] mem[0:2**FIFO_DEPTH-1];
+	reg [FIFO_DEPTH:0] rd_addr,rd_gray1,rd_gray2 , wr_addr,wr_gray1,wr_gray2;
+	wire [FIFO_DEPTH:0] rd_gray,rd_degray , wr_gray,wr_degray;
+
+	assign o_fifo_gauge = wr_degray - rd_addr; // o_clk 
+	assign empty = (o_fifo_gauge == 0);
+	assign rd_gray = { rd_addr[FIFO_DEPTH] , rd_addr[FIFO_DEPTH-1:0]^rd_addr[FIFO_DEPTH:1] };
+	assign wr_degray = { wr_gray2[FIFO_DEPTH] , wr_gray2[FIFO_DEPTH-1:0]^wr_degray[FIFO_DEPTH:1] }; // o_clk domain
+	assign i_fifo_gauge = wr_addr - rd_degray;    // i_clk domain
+	assign full = i_fifo_gauge[FIFO_DEPTH];
+	assign wr_gray = { wr_addr[FIFO_DEPTH] , wr_addr[FIFO_DEPTH-1:0]^wr_addr[FIFO_DEPTH:1] };
+	assign rd_degray = { rd_gray2[FIFO_DEPTH] , rd_gray2[FIFO_DEPTH-1:0]^rd_degray[FIFO_DEPTH:1] };  // i_clk domain -->
+
+	always @( posedge o_clk or negedge rst or posedge clr ) begin
+		if( ~rst | clr ) { rd_addr,wr_gray2,wr_gray1 } <= 0;
+		else begin
+			{wr_gray2,wr_gray1} <= {wr_gray1,wr_gray};
+			rd_addr <= (~empty&o_rd) ? rd_addr + 1 : rd_addr ;
+			o_data <= mem[rd_addr[FIFO_DEPTH-1:0]];
+		end
+	end
+	always @( posedge i_clk or negedge rst or posedge clr ) begin
+		if( ~rst | clr ) { wr_addr,rd_gray2,rd_gray1 } <= 0;
+		else begin
+			{rd_gray2,rd_gray1} <= {rd_gray1,rd_gray};
+			wr_addr <= ( ~full&i_wr) ? wr_addr + 1 : wr_addr ;
+			if( ~full&i_wr ) mem[wr_addr[FIFO_DEPTH-1:0]] <= i_data;
+		end
+	end
+
+	integer k1;
+	initial begin
+		for ( k1=0 ; k1 < 2**FIFO_DEPTH ; k1 = k1 + 1 ) 
+			mem[k1] = 0;
+	end
+endmodule
 
 /* Simple UART send data */
 module UART_TX_A
@@ -344,10 +412,7 @@ module UART_RX_A
 	SimpleFIFO #( .FIFO_DEPTH(FIFO_SIZE), .FIFO_DATA_WIDTH(9) ) RX_FIFO 
 	           ( .clk(clk), .rst(rst), .wr(finalize_data), .rd(rd), .clr(clr), .fifo_gauge(), .full(rx_full), 
 				.empty(rx_empty), .in_data( {parity_err_bit , (size)? rx_data[7] : 1'b0 , rx_data[6:0] } ) , .out_data( {parity_err,rx_buf} ) );
-
 endmodule
-
-
 
 /* Small UART send data */
 module UART_TX_B
@@ -382,7 +447,6 @@ module UART_TX_B
 			end
 		end
 	end
-
 endmodule
 
 
@@ -405,8 +469,7 @@ module UART_RX_B
 	always @( posedge clk or negedge rst ) begin // uart read timing tick
 		if( ~rst ) begin
 			div_count <= UART_DIV;
-			rcv_count <= 'd0;
-			rx_data <= 'd0;
+			{rcv_count,rx_data} <= 'd0;
 		end
 		else begin
 			if( serial_in[2:1] == 2'b10 && rcv_count0 ) begin
