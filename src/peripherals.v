@@ -13,7 +13,30 @@
 	GPIO	*/
 	
 `default_nettype none
+
+/* simple GPIO input */
+module SimpleInput
+		#( parameter PORT_WIDTH = 16 , DATA_WIDTH = 32 )
+		( input wire [PORT_WIDTH-1:0] in_port , output wire [DATA_WIDTH-1:0] rd_data );
+
+		assign rd_data = { {(DATA_WIDTH-PORT_WIDTH){1'dx}} , in_port };
+endmodule
+
+/* simple GPIO Output */
+module SimpleOutput
+		#( parameter PORT_WIDTH = 16 , DATA_WIDTH = 32 )
+		( input wire clk , rst , cs, wr,	output reg [PORT_WIDTH-1:0] out_port ,
+		  output wire [DATA_WIDTH-1:0] rd_data, input wire [DATA_WIDTH-1:0] wr_data );
 	
+	assign rd_data = { {(DATA_WIDTH-PORT_WIDTH){1'dx}} , out_port };
+
+	always @(posedge clk or negedge rst) begin
+		if( ~rst ) out_port <= 0;
+		else if( cs&wr ) out_port <= wr_data[PORT_WIDTH-1:0];
+	end
+endmodule
+
+
 /* Simple clock ticker */
 module Trig_Generator
 		#(parameter DIV_WIDTH = 8)
