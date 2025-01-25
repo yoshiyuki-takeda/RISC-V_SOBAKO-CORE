@@ -529,6 +529,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 				    output reg [31:0] q1 , q2 );
 
     parameter INST_ADDR_WIDTH = 10;
+	 parameter RAM_ADJUSTOR = 0;
 	wire [INST_ADDR_WIDTH-1:0] ad1,ad2;
 	assign ad1 = addr1[2 +: INST_ADDR_WIDTH];
 	assign ad2 = addr2[2 +: INST_ADDR_WIDTH];
@@ -537,7 +538,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 
 // Quad divided memory using SystemVerilog expression for intel quartus
 `ifdef MEM_QUAD_SV
-	reg [3:0][7:0] mem[0:2**INST_ADDR_WIDTH - 1];
+	reg [3:0][7:0] mem[0:2**INST_ADDR_WIDTH - 1 - RAM_ADJUSTOR];
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
 		q2 <= mem[ ad2 ];
@@ -549,7 +550,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 
 // Quad dividec meory using Verilog expression
 `elsif MEM_QUAD_V
-	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1];
+	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1 - RAM_ADJUSTOR];
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
 		q2 <= mem[ ad2 ];
@@ -560,7 +561,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 
 // any verilog can compile
 `else
-	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1];
+	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1 -RAM_ADJUSTOR];
 	wire [7:0] din2[0:3];
 	wire [1:0] wea;
 	assign wea[0] = we2&(wstrb[1] | wstrb[0]);
@@ -917,7 +918,7 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
                 ,output wire [6:0] LCD_out );
 
     parameter INSTRUCTION_RESET_VECTOR = 32'h0000_0000;
-    parameter INSTRUCTION_ADDRESS_WIDTH = 16;
+    parameter INSTRUCTION_ADDRESS_WIDTH = 10;
     
 	wire	[31:0]	PRDATA1,PRDATA2;
 	wire			PSEL1,PSEL2,INT_S;
@@ -946,7 +947,7 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
                          .AWidth(data_width) , .s_ext(sign_ext), .wr(PWRITE) , .byte_write(PSTRB),
 						 .cs(PSEL), .cs1(PSEL1), .cs2(PSEL2) );
 
-	EXT_RAM  #( .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) ) 
+	EXT_RAM  #( .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) , .RAM_ADJUSTOR(0) ) 
                  ram1(  .clk(clock) , .reset(reset) ,
 						.addr1(inst_addr) ,
 						.q1(inst_data) ,
