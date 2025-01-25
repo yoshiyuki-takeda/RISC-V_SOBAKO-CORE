@@ -38,7 +38,7 @@ int main()
     updown = 1;
     last_sw = pre_sw = (*sw)&1;
 
-    asm volatile("csrrs %0,mtvec,%1" : "=r"(dummy) : "r"(interrupt_hander) ); /**/
+    asm volatile("csrrw %0,mtvec,%1" : "=r"(dummy) : "r"(interrupt_hander) ); /*割り込み処理ルーチンの先頭アドレスをmtvecに登録*/
     asm volatile("csrrsi zero,mstatus,0b1000"); /*グローバル割り込みの許可*/
     asm volatile("csrrs %0,mie,%1" : "=r"(dummy) : "r"(mie) ); /*マシン権限の外部割込み許可*/
 
