@@ -185,7 +185,7 @@ module Timer_A
 endmodule
 
 
-/* Smart Watch Dog Timer */
+/* Small Watch Dog Timer */
 module WatchDogTimer_A
 			#( parameter TIMER_WIDTH = 16 )
 			(input wire clk, rst, tick, timer_start, WDT_rst, input wire [TIMER_WIDTH-1:0] WDT_val, 
@@ -213,6 +213,29 @@ module WatchDogTimer_A
 	
 endmodule
 
+/* Small Watch Dog Timer Type B */
+module WatchDogTimer_B
+			#( parameter TIMER_WIDTH = 16 , TIMER_VAL = 16'd60000 )
+			(input wire clk, rst, timer_start, WDT_rst, output wire INT );
+	reg [TIMER_WIDTH-1:0] WDT_reg;
+	reg WDT_int,Start_dly,rst_dly,start_flag;
+	
+	assign INT = WDT_int;
+	
+	always @(posedge clk or negedge rst ) begin
+		if( !rst ) { start_flag,WDT_int,Start_dly,rst_dly,WDT_reg } <= { 4'd0,TIMER_VAL };
+		else begin
+			{ Start_dly , rst_dly } <= { timer_start, WDT_rst };
+			if( {timer_start,Start_dly} == 2'b10 ) start_flag <= 1;
+			if( start_flag ) begin
+				if( WDT_reg == 0 ) WDT_int <= 1;
+				else if( {WDT_rst,rst_dly} == 2'b10 ) WDT_reg <= TIMER_VAL;
+				else if( ~WDT_int ) WDT_reg <= WDT_reg - 1;
+			end
+		end
+	end
+	
+endmodule
 
 /* pseudorandom numbers */
 module Random_A (input wire clk, rst, we, rd, input wire [15:0] rand_init, output reg [15:0] random );
