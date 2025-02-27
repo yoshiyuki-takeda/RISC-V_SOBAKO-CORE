@@ -289,10 +289,11 @@ module SimpleFIFO
 	assign empty = current_enpty | empty_shift;
 	assign full = fifo_gauge[FIFO_DEPTH];//(fifo_gauge == (2**FIFO_DEPTH-1));
 
-	always @( posedge clk or negedge rst ) begin
+	always @( posedge clk ) begin
 		empty_shift <= current_enpty;
-		if( ~rst ) { rd_addr , wr_addr } <= 0;
-		else if( clr ) { rd_addr , wr_addr } <= 0;
+	end
+	always @( posedge clk or negedge rst or posedge clr ) begin
+		if( ~rst | clr) { rd_addr , wr_addr } <= 0;
 		else begin
 			rd_addr <= (~empty&rd) ? rd_addr + 1 : rd_addr ;
 			wr_addr <= ( ~full&wr) ? wr_addr + 1 : wr_addr ;
