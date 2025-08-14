@@ -56,9 +56,10 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 							 output wire [14:0] outcode );
 
 	parameter RESET_VECTOR  = 32'h0000_0000;
-    parameter VALID_PC_WIDTH = 10;
+	parameter VALID_PC_WIDTH = 10;
 	parameter NMI_VECTOR    = 32'h0000_1230;
-    parameter DEFAULT_MTVEC = 32'h0000_0050;
+	parameter DEFAULT_MTVEC = 32'h0000_0050;
+	//parameter DEFAULT_MTVEC = 32'h0000_0040;
 	parameter SHIFT_SELECTOR = 0;
 	parameter SHIFT_LATENCY = 1;
 
@@ -124,15 +125,6 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 		endcase
 	endfunction
 
-    function [31:0] XXd1_sel( input in1,in2,in3, input [31:0] ret1,ret2,ret3 );
-        casex( {in1,in2,in3} )
-            3'b1xx : XXd1_sel = ret1;
-            3'b01x : XXd1_sel = ret2;
-            3'b001 : XXd1_sel = ret3;
-            default : XXd1_sel = 32'd0;
-        endcase
-    endfunction
-
     /* end of declaration */
 
 	wire [31:0] inst;
@@ -146,7 +138,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	wire code_sys,compliment,Load_sub,sft,sft_lr,as,f7i,ALU_sub,ALU_cmp,csr_imac;
 	wire [1:0] BRCH_sub,ACC_Width,CSR_sub;
 
-	wire [31:0] SI_imm, B_imm, U_imm, J_imm ,csr_imm;
+	wire [31:0] SI_imm, BJ_imm, U_imm, csr_imm;//, B_imm, J_imm;
 	wire [11:0] csr_addr;
 
 	reg [VALID_PC_WIDTH-1:0] pc;
@@ -154,18 +146,19 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	wire cndtn[3:0];
 	wire BRANCH_F;
     wire exec_op;
-	wire [VALID_PC_WIDTH-1:0] pc_calc,pc_calc_transfer,pc_add_sel[0:2],sel_p[0:3];
+	wire [VALID_PC_WIDTH-1:0] pc_calc,pc_calc_transfer,pc_add_sel[0:2],sel_p[0:2];
+	//reg [VALID_PC_WIDTH-1:0] pc_calc,pc_add_sel;
 	wire [1:0] sel_pc,pc_add_num;
 
 	reg [31:0] x1,x2;
 	reg [4:0] q;
     reg sft_wait;
-	reg [31:0] shiftr;
+	reg [31:0] shiftr,xd1_sel;
 	wire [31:0] xd1,xd2,logic_op,ALU_out,ALU_add_sub,Others_xd,s2_sel[0:2],xd2_sel[0:3],alu_sel[0:3];//,lms[0:3]
 	wire [4:0] x2xd,x1xd;
 	wire [5:0] reg1addr,reg2addr;
 	wire [31:0] x1val,x2val,S2_ImmReg;//s2
-    reg [31:0] greg[0:47]; 
+    reg [31:0] greg[0:47];
 	wire we_reg,we_csr,addr_en,stillshift,except_en,cmp_us,cmp_sg,reg1en,reg2en,fsft,Add_Sub_Sel;
 	wire [1:0] xd2_sn,s2_num;
     wire [31:0] L_shift,sft_in,in_invLR,R_shift;
@@ -176,8 +169,9 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	wire [31:0] csr_sel;
 	reg MIE_bit,MPIE_bit,MEIE_bit,NMIE_bit;
 	wire [31:0] csr_value;
-	wire [31:0] csr_mux[0:8];
-	reg [3:0] csr_num;
+	wire [31:0] csr_mux[0:3];
+	reg [2:0] csr_num;
+    reg [1:0] csr_no;
 	
 	assign inst = inst_data;
 	assign { funct7  , rs2  , rs1 , funct3  , rd , op } = inst;
@@ -186,7 +180,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	assign BRCH_sub[1:0] = funct3[2:1];		//conditional jump
 	assign compliment = funct3[0];		//branch compliment
-	assign ACC_Width[1:0] = funct3[1:0];		//memory access  
+	assign Awidth[1:0] = funct3[1:0];		//memory access  
 	assign Load_sub = ~funct3[2];			//sign extensionsion
 	assign ALU_sub = funct7[5];				//0:addition or、logical right shift 1:subtraction or arithmetic right shift 
 	assign f7i = ( {funct7[6],funct7[4:0]} == 6'd0 );		//  
@@ -216,22 +210,23 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign outcode = { CODE_CSR, /*CODE_WFI,*/ CODE_MRET, CODE_EBRK, CODE_ECALL, CODE_FENCEI ,CODE_FENCE, CODE_ALUR, CODE_ALUI,
 									CODE_STORE, CODE_LOAD, CODE_BRCH, CODE_JALR, CODE_JAL ,CODE_AUIPC, CODE_LUI} ; //----------------------- no need
 
-	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE)?inst[11:7]:inst[24:20]} };
-	assign B_imm = { { 20{inst[31]} } , {inst[7]} , {inst[30:25]} , {inst[11:8]} , {1'b0} };
-	assign U_imm = { inst[31:12] , 12'h000 };
-	assign J_imm = { { 12{inst[31]} } , {inst[19:12]} , {inst[20]} , { inst[30:21] } , {1'b0} };
 	assign csr_addr[11:0] = inst[31:20];
 	assign csr_imm = { 27'd0 , inst[19:15] };
+	assign U_imm = { inst[31:12] , 12'h000 };
+	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE|CODE_BRCH)?inst[11:7]:inst[24:20]} };  
+    assign BJ_imm = { SI_imm[31:20] , (CODE_BRCH)? SI_imm[19:12]:U_imm[19:12] , SI_imm[0] , SI_imm[10:1] , 1'b0 };
+	//assign SI_imm = { { 21{csr_addr[11]} } , { csr_addr[10:5] } , {(CODE_STORE|CODE_BRCH)?inst[11:7]:csr_addr[4:0]} };  
+    //assign BJ_imm = {  {12{inst[31]}} , {(CODE_BRCH)? {{8{inst[31]}},inst[7]}:{inst[19:12],inst[20]} }, inst[30:25] , {(CODE_BRCH)? inst[11:8]:inst[24:21] },1'b0 }; 
 
 	assign NMI_int_en = NMIE_bit & NMI_S;
 	assign int_en = MIE_bit & MEIE_bit & INT_S;
     assign addr_en = (stg>'d1)&(CODE_LOAD|CODE_STORE);
 	assign e_DataAddrMiss = addr_en&( (Awidth[0]&PADDR[0]) | (Awidth[1]&(PADDR[0]|PADDR[1])) );
-	assign e_Inst = (~(|outcode)) & ((stg!='d0)) ;
+	assign e_Inst = (~(|outcode)) & (stg!='d0) ;
  	assign except_en = e_DataAddrMiss | e_Inst | CODE_EBRK | CODE_ECALL;
 	assign Jump_e = NMI_int_en|except_en|int_en;
 
-   assign Ecode = ((~reset)|NMI_int_en)? 5'd31 : (int_en|CODE_ECALL)? 5'd11 : (CODE_EBRK)? 5'd3:
+    assign Ecode = ((~reset)|NMI_int_en)? 5'd31 : (int_en|CODE_ECALL)? 5'd11 : (CODE_EBRK)? 5'd3:
 							  (e_Inst)? 5'd2 : (e_DataAddrMiss)? ((CODE_LOAD)? 5'd4 : 5'd6) : 5'd0  ;
 
     assign s2_num = ((stg>='d6)|CODE_MRET)? 2'd0 : (CODE_ALUI|CODE_JALR|CODE_LOAD|CODE_STORE)? 2'd2 : 2'd1;
@@ -248,13 +243,11 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	//memory access circuit
 	assign PADDR = ALU_add_sub;
-	assign Awidth = ACC_Width;
+	//assign Awidth = ACC_Width;
     assign s_ext = Load_sub;
 	assign PWDATA = x2;
     assign PWRITE  = (stg>'d1)&(CODE_STORE); //
-    //assign PWRITE  = (~CODE_LOAD) & addr_en; //
     assign PSEL = addr_en;
-	//assign PENABLE = (stg=='d3)&(CODE_STORE|CODE_LOAD)&(~e_DataAddrMiss);
 	assign PENABLE = (stg=='d3)& addr_en &(~e_DataAddrMiss);
 
     //  latency or start trigger of sequential shifter
@@ -365,80 +358,94 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 		end
 	endgenerate
 
-    assign we_reg = ( (stg=='d1)&(CODE_AUIPC|CODE_LUI|CODE_JAL) )
+    assign we_reg = ( (stg=='d1)&(CODE_LUI|CODE_AUIPC|CODE_JAL) )
                   | ( (stg=='d2)&( ((~stillshift)&(~fsft)&(CODE_ALUR|CODE_ALUI)) | CODE_JALR ) )
                   | ( (stg=='d3)&CODE_LOAD) ;
 
 	assign we_csr =   (stg=='d2)&CODE_CSR;
 
-    assign xd1 = XXd1_sel( e_DataAddrMiss , e_Inst , (stg<'d5)&CODE_CSR , PADDR , inst , csr_value  );
+    //assign xd1 = XXd1_sel( e_DataAddrMiss , e_Inst , (stg<'d5)&CODE_CSR , PADDR , inst , csr_value  );
+    always @(*) begin
+        casex( { e_Inst , e_DataAddrMiss } ) //  (stg<'d5)&CODE_CSR                  
+            2'b1x: xd1_sel = inst;  //    
+            2'b01: xd1_sel = PADDR;
+            default: xd1_sel = csr_value;
+        endcase
+    end
+    assign xd1 = xd1_sel;
 
-	assign xd2_sel[3] = PRDATA;
-	assign xd2_sel[2] = ALU_out;
-	assign xd2_sel[1] = csr_nn;
-	assign xd2_sel[0] = Others_xd;
-	assign xd2_sn = ((stg<'d5)&(CODE_ALUR|CODE_ALUI))? 2'd2 : ((stg<'d5)&(CODE_LOAD)) ? 2'd3 : ((stg<'d5)&(CODE_CSR))? 2'd1 : 2'd0 ;
+    localparam LP_XD0 = 2;
+    localparam LP_XD1 = 3;
+    localparam LP_XD2 = 0;
+    localparam LP_XD3 = 1;
+
+	assign xd2_sn = ((stg<'d5)&(CODE_ALUR|CODE_ALUI))? LP_XD2 : ((stg<'d5)&(CODE_LOAD)) ? LP_XD3 : ((stg<'d5)&(CODE_CSR))? LP_XD1 : LP_XD0 ;
+	assign xd2_sel[LP_XD3] = PRDATA;
+	assign xd2_sel[LP_XD2] = ALU_out;
+	assign xd2_sel[LP_XD1] = csr_nn;
+	assign xd2_sel[LP_XD0] = Others_xd;
 	assign xd2 = xd2_sel[xd2_sn];
+
+    localparam LP_CN0 = 3'd0 ; // mtvec    32
+    localparam LP_CN1 = 3'd1 ; // mepc     33
+    localparam LP_CN2 = 3'd3 ; // mtval  35
+    localparam LP_CN3 = 3'd5 ; // mcause  37
+    localparam LP_CN4 = 3'd2 ; // misa    34
+    localparam LP_CN5 = 3'd4 ; // others, undefined  36
 
 	assign x1xd = ( we_csr ) ? rd : rs1;
 	assign reg1en = (stg=='d5) | (we_csr&(x1xd>'d0));
-    assign reg1addr = (stg>='d6)? 6'h20 : (stg=='d5)? 6'h22 : ((stg<'d5)&CODE_MRET) ? 6'h21 : {1'b0,x1xd};
+    assign reg1addr = (stg>='d6)? ((NMI_int_en)? {3'b101,LP_CN0}:{3'b100,LP_CN0}) : (stg=='d5)? {3'b100,LP_CN2} : ((stg<'d5)&CODE_MRET) ? {3'b100,LP_CN1} : {1'b0,x1xd}; //
     assign x1val= xd1;
 
 	assign x2xd = ( we_reg ) ? rd : rs2;
 	assign reg2en = (we_csr&(csr_num<='d1)) | (we_reg&(x2xd>'d0)) | (stg=='d6) | (stg=='d5); 
-    assign reg2addr = (stg=='d6)? 6'h21 : (stg=='d5)? 6'h23 : ((stg<'d5)&CODE_CSR)? {2'b10,csr_num[3:0]} : {1'b0,x2xd} ;
+    assign reg2addr = (stg=='d6)? {3'b100,LP_CN1} : (stg=='d5)? {3'b100,LP_CN3} : ((stg<'d5)&CODE_CSR)? {3'b100,csr_num[2:0]} : {1'b0,x2xd} ;
     assign x2val= xd2;
 
     always @(posedge clk) begin
-        x1 <= greg[reg1addr];
-        if(reg1en)
-            greg[reg1addr] <= x1val;
+        if(~reg1en) x1 <= greg[reg1addr];
+        if(reg1en) greg[reg1addr] <= x1val;
     end
     always @(posedge clk) begin
-        x2 <= greg[reg2addr];
-        if(reg2en)
-            greg[reg2addr] <= x2val;
+        if(~reg2en) x2 <= greg[reg2addr];
+        if(reg2en) greg[reg2addr] <= x2val;
     end
 
-    // h20(d32) : mtvec , h21(d33) : mepc , h22(d34) : mtval , h23(d35) : mcause
+    // h20(d32) : mtvec , h21(d33) : mepc , h22(d34) : mtval , h23(d35) : mcause , h24(d36) : misa
     integer k;
     initial begin
         for( k=0 ; k<48 ; k=k+1 )
-            if( k == 32 ) greg[k] = DEFAULT_MTVEC;
+            if( k == {3'b100,LP_CN0} ) greg[k] = DEFAULT_MTVEC;
+            else if( k == {3'b100,LP_CN4} ) greg[k] = { 2'b01 , 4'b0000 , 26'b00_0000_0000_0000_0001_0000_0000 };  // misa	ISA and extensions;;
+            else if( k == {3'b101,LP_CN0} ) greg[k] = NMI_VECTOR;
             else          greg[k] = 'd0;
     end
 	
 	//program counter circuit
-	//assign inst_addr = {14'd0,pc,2'd0};
-	//assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-((VALID_PC_WIDTH < 30)? 2:1))]  , pc , 2'd0};
 	assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-2)]  , pc , 2'd0};
 
 	assign cndtn[2'b00] = ~(|ALU_add_sub); // x1 == x2;  
-	assign cndtn[2'b01] = 1'bx;
+	assign cndtn[2'b01] = cndtn[2'b00];//1'bx;//
 	assign cndtn[2'b10] = cmp_sg;
 	assign cndtn[2'b11] = cmp_us;
-    assign BRANCH_F = CODE_BRCH&(cndtn[BRCH_sub] == compliment) ;
+    assign BRANCH_F = (cndtn[BRCH_sub] == compliment)&CODE_BRCH ;
 
-    assign pc_add_num = (CODE_BRCH)? 2'd2 : (CODE_JAL)? 2'd0 : 2'd1 ;
-    assign pc_add_sel[2] = B_imm[2 +: VALID_PC_WIDTH];
-    assign pc_add_sel[1] = { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} }  ;
-    assign pc_add_sel[0] = J_imm[2 +: VALID_PC_WIDTH];
-	assign pc_calc_transfer = pc + pc_add_sel[pc_add_num];
+	//assign pc_calc_transfer = pc + ( (~(CODE_JAL|CODE_BRCH))? { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} } :  BJ_imm[2 +: VALID_PC_WIDTH]);
+	assign pc_calc_transfer = pc + ( (CODE_JAL|CODE_BRCH)? BJ_imm[2 +: VALID_PC_WIDTH] : { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} } );
 
-    assign sel_pc = (stg>='d6) ? ( (NMI_int_en)? 2'd1 : //NMI
-                                                 2'd3): //interrupt/except
-                          (CODE_MRET|CODE_JALR)? 2'd3 : //MRET , x + i
-                                     (BRANCH_F)? 2'd2 : //branch false(Others_xd,pc + 4)
-                                                 2'd0 ; //branch true(pc + b) , jal(pc + j) , pc + 4
-
-	assign sel_p[3] = ALU_add_sub[2 +: VALID_PC_WIDTH]; /*mtvec,MRET,JALR*/
-	assign sel_p[2] = Others_xd[2 +: VALID_PC_WIDTH]; /* branch false */
-	assign sel_p[1] = NMI_VECTOR[2 +: VALID_PC_WIDTH];
-	assign sel_p[0] = pc_calc_transfer; /*Branch true , Jal , pc+4*/
+    localparam LP_PC_SEL0 = 1;  //1
+    localparam LP_PC_SEL1 = 0;  //0
+    localparam LP_PC_SEL2 = 2;  //2
+    assign sel_pc = ((stg>='d6)|CODE_MRET|CODE_JALR)? LP_PC_SEL0 : //MRET , x + i ,interrupt/except ,NMI
+                                          (BRANCH_F)? LP_PC_SEL1 : //branch false(Others_xd,pc + 4)
+                                                      LP_PC_SEL2 ; //branch true(pc + b) , jal(pc + j) , pc + 4
+	assign sel_p[LP_PC_SEL0] = ALU_add_sub[2 +: VALID_PC_WIDTH]; /*mtvec,NMI,MRET,JALR*/
+	assign sel_p[LP_PC_SEL1] = Others_xd[2 +: VALID_PC_WIDTH]; /* branch false */
+	assign sel_p[LP_PC_SEL2] = pc_calc_transfer; /*Branch true , Jal , pc+4*/
 	assign pc_calc = sel_p[sel_pc];
 
-	assign exec_op =  we_reg | we_csr | PENABLE | ((stg == 'd1)&(CODE_FENCE|CODE_FENCEI)) | ((stg == 'd2)&(CODE_BRCH|CODE_MRET)) ;
+	assign exec_op = we_csr | we_reg | PENABLE | ((stg == 'd1)&(CODE_FENCE|CODE_FENCEI)) | ((stg == 'd2)&(CODE_MRET|CODE_BRCH)) ;
 
 	always @( posedge clk or negedge reset ) begin
 		if( ~reset )
@@ -463,35 +470,43 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	end
 
 	/*CSR*/
-	assign csr_value = csr_mux[csr_num];
+    localparam LP_CSR0 = 2;
+    localparam LP_CSR1 = 3;
+    localparam LP_CSR2 = 0;
+    localparam LP_CSR3 = 1;
 
-	assign csr_mux[2] = x2;// mtval	    Machine bad address or instruction.;
-	assign csr_mux[3] = x2;// mcause	Machine trap cause.; //{ mc_Int , 23'd0 , Ecode } ;
-	assign csr_mux[0] = x2;// mtvec		Machine trap-handler base address.;
-	assign csr_mux[1] = x2;// mepc		Machine exception program counter.;//{mepc , 2'b00 }; 
-
-	assign csr_mux[4] = { 19'd0,2'b11,3'd0,MPIE_bit,3'd0,MIE_bit,3'd0 }; // mstatus		Machine status register.;
-	assign csr_mux[5] = { 20'd0 , MEIE_bit , 11'd0 }; // mie			Machine interrupt-enable register.;
-	assign csr_mux[6] = { 20'd0 , INT_S , 11'd0 }; // mip Machine interrupt pending.  //8'h44 : csr_value = { 20'd0 , MEIP_bit , 11'd0 };
-	assign csr_mux[7] = { 2'b01 , 4'b0000 , 26'b00_0000_0000_0000_0001_0000_0000 };  // misa		ISA and extensions;;
-	assign csr_mux[8] = 32'd0;
+	assign csr_mux[LP_CSR0] = { 19'd0,2'b11,3'd0,MPIE_bit,3'd0,MIE_bit,3'd0 }; // mstatus		Machine status register.;
+	assign csr_mux[LP_CSR1] = { 20'd0 , MEIE_bit , 11'd0 }; // mie			Machine interrupt-enable register.;
+	assign csr_mux[LP_CSR2] = { 20'd0 , INT_S , 11'd0 }; // mip Machine interrupt pending.  //8'h44 : csr_value = { 20'd0 , MEIP_bit , 11'd0 };
+	assign csr_mux[LP_CSR3] = x2;
+	assign csr_value = csr_mux[csr_no];
 
 	always @(*) begin
 		if( csr_addr[11:8]=='d3 ) begin
 			case( csr_addr[7:0] )
-				'h00 : csr_num = 'd4; //mstatus
-				'h01 : csr_num = 'd7; //misa
-				'h04 : csr_num = 'd5; //mie
-				'h05 : csr_num = 'd0; //mtvec
-				'h41 : csr_num = 'd1; //mepc
-				'h42 : csr_num = 'd3; //mcause
-				'h43 : csr_num = 'd2; //mtval
-				'h44 : csr_num = 'd6; //mip
-				default : csr_num = 'd8;
+				'h00 : csr_no = LP_CSR0; //mstatus
+				'h04 : csr_no = LP_CSR1; //mie
+				'h44 : csr_no = LP_CSR2; //mip
+				default : csr_no = LP_CSR3;
 			endcase
 		end
 		else
-			csr_num = 'd8;
+			csr_no = LP_CSR3;
+	end
+
+	always @(*) begin
+		if( csr_addr[11:8]=='d3 ) begin
+			case( csr_addr[7:0] )
+				'h01 : csr_num = LP_CN4; //misa
+				'h05 : csr_num = LP_CN0; //mtvec
+				'h41 : csr_num = LP_CN1; //mepc
+				'h42 : csr_num = LP_CN3; //mcause
+				'h43 : csr_num = LP_CN2; //mtval
+				default : csr_num = LP_CN5;
+			endcase
+		end
+		else
+			csr_num = LP_CN5;
 	end
 
 	always @(posedge clk or negedge reset) begin
@@ -512,14 +527,14 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 				MIE_bit <= MPIE_bit;
 				MPIE_bit <= 'd1;
 			end
-			if( we_csr&(csr_num=='d4) ) { MPIE_bit , MIE_bit } <= { csr_nn[7], csr_nn[3] }; // mstatus		Machine status register.
-			if( we_csr&(csr_num=='d5) ) MEIE_bit <= csr_nn[11]; // mie		Machine interrupt-enable register.
+			if( we_csr&(csr_no==LP_CSR0) ) { MPIE_bit , MIE_bit } <= { csr_nn[7], csr_nn[3] }; // mstatus		Machine status register.
+			if( we_csr&(csr_no==LP_CSR1) ) MEIE_bit <= csr_nn[11]; // mie		Machine interrupt-enable register.
 		end
 	end
 
 endmodule
 
-`define MEM_QUAD_SV
+//`define MEM_QUAD_SV
 //`define MEM_QUAD_V
 
 /* main memory */
@@ -541,11 +556,11 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 	reg [3:0][7:0] mem[0:2**INST_ADDR_WIDTH - 1 - RAM_ADJUSTOR];
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
-		q2 <= mem[ ad2 ];
-		if( we2&wstrb[0] ) mem[ ad2 ][0] <= d22[ 0 +: 8];
-		if( we2&wstrb[1] ) mem[ ad2 ][1] <= d22[ 8 +: 8];
-		if( we2&wstrb[2] ) mem[ ad2 ][2] <= d22[16 +: 8];
-		if( we2&wstrb[3] ) mem[ ad2 ][3] <= d22[24 +: 8];
+		//q2 <= mem[ ad2 ];
+		for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 ) begin
+			if( ~(we2&wstrb[byte_no]) ) q2[ 8*byte_no +: 8 ] <= mem[ ad2 ][byte_no];
+			if(  we2&wstrb[byte_no]  ) mem[ ad2 ][byte_no] <= d22[ 8*byte_no +: 8 ];
+		end
 	end
 
 // Quad dividec meory using Verilog expression
@@ -553,10 +568,11 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1 - RAM_ADJUSTOR];
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
-		q2 <= mem[ ad2 ];
-		for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 )
-			if( we2&wstrb[byte_no] )
-				mem[ ad2 ][ 8*byte_no +: 8 ] <= d22[ 8*byte_no +: 8 ];
+		//q2 <= mem[ ad2 ];
+		for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 ) begin
+			if( ~(we2&wstrb[byte_no]) ) q2[ 8*byte_no +: 8 ] <= mem[ ad2 ][8*byte_no +: 8];
+			if( we2&wstrb[byte_no] ) mem[ ad2 ][ 8*byte_no +: 8 ] <= d22[ 8*byte_no +: 8 ];
+		end
 	end
 
 // any verilog can compile
@@ -576,14 +592,55 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 			
 	always @(posedge clk) begin
 		q1 <= mem[ ad1 ];
-		q2 <= mem[ ad2 ];
+		//q2 <= mem[ ad2 ];
+		if( ~wea[0] ) q2[ 0 +: 16] <= mem[ ad2 ][ 0 +: 16];
+		if( ~wea[1] ) q2[16 +: 16] <= mem[ ad2 ][16 +: 16];
 		if( wea[0] ) mem[ ad2 ][ 0 +: 16] <= { din2[1] , din2[0] };
 		if( wea[1] ) mem[ ad2 ][16 +: 16] <= { din2[3] , din2[2] };
 	end
 `endif
 
 	initial begin  //memory initialize
-		$readmemh( "./test.hex" , mem ); //program read from hex file
+//		$readmemh("./rv32ui-p-add.hex", mem);	// 1
+//		$readmemh("./rv32ui-p-addi.hex", mem);	// 2
+//		$readmemh("./rv32ui-p-and.hex", mem);	// 3
+//		$readmemh("./rv32ui-p-andi.hex", mem);	// 4
+//		$readmemh("./rv32ui-p-auipc.hex", mem);	// 5
+//		$readmemh("./rv32ui-p-beq.hex", mem);	// 6
+//		$readmemh("./rv32ui-p-bge.hex", mem);	// 7
+//		$readmemh("./rv32ui-p-bgeu.hex", mem);	// 8
+//		$readmemh("./rv32ui-p-blt.hex", mem);	// 9
+//		$readmemh("./rv32ui-p-bltu.hex", mem);	// 10
+//		$readmemh("./rv32ui-p-bne.hex", mem);	// 11
+//		$readmemh("./rv32ui-p-fence_i.hex", mem);	// 12
+//		$readmemh("./rv32ui-p-jal.hex", mem);	// 13
+//		$readmemh("./rv32ui-p-jalr.hex", mem);	// 14
+//		$readmemh("./rv32ui-p-lb.hex", mem);	// 15
+//		$readmemh("./rv32ui-p-lbu.hex", mem);	// 16
+//		$readmemh("./rv32ui-p-lh.hex", mem);	// 17
+//		$readmemh("./rv32ui-p-lhu.hex", mem);	// 18
+//		$readmemh("./rv32ui-p-lui.hex", mem);	// 19
+//		$readmemh("./rv32ui-p-lw.hex", mem);	// 20
+//		$readmemh("./rv32ui-p-or.hex", mem);	// 21
+//		$readmemh("./rv32ui-p-ori.hex", mem);	// 22
+//		$readmemh("./rv32ui-p-sb.hex", mem);	// 23
+		$readmemh("./rv32ui-p-sh.hex", mem);	// 24
+//		$readmemh("./rv32ui-p-sll.hex", mem);	// 25
+//		$readmemh("./rv32ui-p-slli.hex", mem);	// 26
+//		$readmemh("./rv32ui-p-slt.hex", mem);	// 27
+//		$readmemh("./rv32ui-p-slti.hex", mem);	// 28
+//		$readmemh("./rv32ui-p-sltiu.hex", mem);	// 29
+//		$readmemh("./rv32ui-p-sltu.hex", mem);	// 30
+//		$readmemh("./rv32ui-p-sra.hex", mem);	// 31
+//		$readmemh("./rv32ui-p-srai.hex", mem);	// 32
+//		$readmemh("./rv32ui-p-srl.hex", mem);	// 33
+//		$readmemh("./rv32ui-p-srli.hex", mem);	// 34
+//		$readmemh("./rv32ui-p-sub.hex", mem);	// 35
+//		$readmemh("./rv32ui-p-sw.hex", mem);	// 36
+//		$readmemh("./rv32ui-p-xor.hex", mem);	// 37
+//		$readmemh("./rv32ui-p-xori.hex", mem);	// 38
+
+//		$readmemh( "./test.hex" , mem ); //program read from hex file
 	end //memory initial end 
 	
 endmodule 
