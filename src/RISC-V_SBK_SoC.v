@@ -7,7 +7,7 @@
                                                # #         #      # # #  #   #    R   R   I   S       C       V   V
   RISC-V ABI suport : RV32I                   #####      #####    # # #  #   #    RRRR    I    SSSS   C       V  V
                                                #           #      # # #  #   #    R R     I        S  C       V V
-  Copyright 2022-2023 yoshiyuki.takeda       #######   #########  # # # #     #   R  R    I   S    S  C    C  VV
+  Copyright 2022-2025 yoshiyuki.takeda       #######   #########  # # # #     #   R  R    I   S    S  C    C  VV
                                               #   #        #        #   #     #   R   R  III   SSSS    CCCC   V
                                              # ### #      #####   ##### #     #  
                                             #  # #  #    #   #      #    #####     CCCC    OOOO   RRRR   EEEEE
@@ -534,7 +534,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 endmodule
 
-//`define MEM_QUAD_SV
+//`define MEM_QUAD_SV	//For Intel(Altera) Quartus and must set Compiler to System Verilog
 //`define MEM_QUAD_V
 
 /* main memory */
@@ -601,46 +601,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 `endif
 
 	initial begin  //memory initialize
-//		$readmemh("./rv32ui-p-add.hex", mem);	// 1
-//		$readmemh("./rv32ui-p-addi.hex", mem);	// 2
-//		$readmemh("./rv32ui-p-and.hex", mem);	// 3
-//		$readmemh("./rv32ui-p-andi.hex", mem);	// 4
-//		$readmemh("./rv32ui-p-auipc.hex", mem);	// 5
-//		$readmemh("./rv32ui-p-beq.hex", mem);	// 6
-//		$readmemh("./rv32ui-p-bge.hex", mem);	// 7
-//		$readmemh("./rv32ui-p-bgeu.hex", mem);	// 8
-//		$readmemh("./rv32ui-p-blt.hex", mem);	// 9
-//		$readmemh("./rv32ui-p-bltu.hex", mem);	// 10
-//		$readmemh("./rv32ui-p-bne.hex", mem);	// 11
-//		$readmemh("./rv32ui-p-fence_i.hex", mem);	// 12
-//		$readmemh("./rv32ui-p-jal.hex", mem);	// 13
-//		$readmemh("./rv32ui-p-jalr.hex", mem);	// 14
-//		$readmemh("./rv32ui-p-lb.hex", mem);	// 15
-//		$readmemh("./rv32ui-p-lbu.hex", mem);	// 16
-//		$readmemh("./rv32ui-p-lh.hex", mem);	// 17
-//		$readmemh("./rv32ui-p-lhu.hex", mem);	// 18
-//		$readmemh("./rv32ui-p-lui.hex", mem);	// 19
-//		$readmemh("./rv32ui-p-lw.hex", mem);	// 20
-//		$readmemh("./rv32ui-p-or.hex", mem);	// 21
-//		$readmemh("./rv32ui-p-ori.hex", mem);	// 22
-//		$readmemh("./rv32ui-p-sb.hex", mem);	// 23
-		$readmemh("./rv32ui-p-sh.hex", mem);	// 24
-//		$readmemh("./rv32ui-p-sll.hex", mem);	// 25
-//		$readmemh("./rv32ui-p-slli.hex", mem);	// 26
-//		$readmemh("./rv32ui-p-slt.hex", mem);	// 27
-//		$readmemh("./rv32ui-p-slti.hex", mem);	// 28
-//		$readmemh("./rv32ui-p-sltiu.hex", mem);	// 29
-//		$readmemh("./rv32ui-p-sltu.hex", mem);	// 30
-//		$readmemh("./rv32ui-p-sra.hex", mem);	// 31
-//		$readmemh("./rv32ui-p-srai.hex", mem);	// 32
-//		$readmemh("./rv32ui-p-srl.hex", mem);	// 33
-//		$readmemh("./rv32ui-p-srli.hex", mem);	// 34
-//		$readmemh("./rv32ui-p-sub.hex", mem);	// 35
-//		$readmemh("./rv32ui-p-sw.hex", mem);	// 36
-//		$readmemh("./rv32ui-p-xor.hex", mem);	// 37
-//		$readmemh("./rv32ui-p-xori.hex", mem);	// 38
-
-//		$readmemh( "./test.hex" , mem ); //program read from hex file
+		$readmemh( "./test.hex" , mem ); //program read from hex file
 	end //memory initial end 
 	
 endmodule 
