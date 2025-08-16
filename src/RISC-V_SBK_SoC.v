@@ -59,7 +59,6 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	parameter VALID_PC_WIDTH = 10;
 	parameter NMI_VECTOR    = 32'h0000_1230;
 	parameter DEFAULT_MTVEC = 32'h0000_0050;
-	//parameter DEFAULT_MTVEC = 32'h0000_0040;
 	parameter SHIFT_SELECTOR = 0;
 	parameter SHIFT_LATENCY = 1;
 
@@ -215,8 +214,6 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign U_imm = { inst[31:12] , 12'h000 };
 	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE|CODE_BRCH)?inst[11:7]:inst[24:20]} };  
     assign BJ_imm = { SI_imm[31:20] , (CODE_BRCH)? SI_imm[19:12]:U_imm[19:12] , SI_imm[0] , SI_imm[10:1] , 1'b0 };
-	//assign SI_imm = { { 21{csr_addr[11]} } , { csr_addr[10:5] } , {(CODE_STORE|CODE_BRCH)?inst[11:7]:csr_addr[4:0]} };  
-    //assign BJ_imm = {  {12{inst[31]}} , {(CODE_BRCH)? {{8{inst[31]}},inst[7]}:{inst[19:12],inst[20]} }, inst[30:25] , {(CODE_BRCH)? inst[11:8]:inst[24:21] },1'b0 }; 
 
 	assign NMI_int_en = NMIE_bit & NMI_S;
 	assign int_en = MIE_bit & MEIE_bit & INT_S;
@@ -243,7 +240,6 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	//memory access circuit
 	assign PADDR = ALU_add_sub;
-	//assign Awidth = ACC_Width;
     assign s_ext = Load_sub;
 	assign PWDATA = x2;
     assign PWRITE  = (stg>'d1)&(CODE_STORE); //
