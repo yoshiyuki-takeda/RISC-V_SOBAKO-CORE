@@ -61,6 +61,8 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	parameter DEFAULT_MTVEC = 32'h0000_0050;
 	parameter SHIFT_SELECTOR = 0;
 	parameter SHIFT_LATENCY = 1;
+	parameter WRITE_CYCLE_OPT = 0;
+	parameter MEMORY_TYPE = 0;
 
     /*function declaration   */
 	function LUT_sel_or( input sel12 , sel1 , sel2a , sel2b );
@@ -144,25 +146,24 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	reg [2:0]  stg;
 	wire cndtn[3:0];
 	wire BRANCH_F;
-    wire exec_op;
+	wire exec_op;
 	wire [VALID_PC_WIDTH-1:0] pc_calc,pc_calc_transfer,pc_add_sel[0:2],sel_p[0:2];
-	//reg [VALID_PC_WIDTH-1:0] pc_calc,pc_add_sel;
 	wire [1:0] sel_pc,pc_add_num;
 
 	reg [31:0] x1,x2;
 	reg [4:0] q;
-    reg sft_wait;
+	reg sft_wait;
 	reg [31:0] shiftr,xd1_sel;
 	wire [31:0] xd1,xd2,logic_op,ALU_out,ALU_add_sub,Others_xd,s2_sel[0:2],xd2_sel[0:3],alu_sel[0:3];//,lms[0:3]
 	wire [4:0] x2xd,x1xd;
 	wire [5:0] reg1addr,reg2addr;
 	wire [31:0] x1val,x2val,S2_ImmReg;//s2
-    reg [31:0] greg[0:47];
+	reg [31:0] greg[0:47];
 	wire we_reg,we_csr,addr_en,stillshift,except_en,cmp_us,cmp_sg,reg1en,reg2en,fsft,Add_Sub_Sel;
 	wire [1:0] xd2_sn,s2_num;
-    wire [31:0] L_shift,sft_in,in_invLR,R_shift;
+	wire [31:0] L_shift,sft_in,in_invLR,R_shift;
 
-    wire e_DataAddrMiss,e_Inst,Jump_e,NMI_int_en,int_en;
+	wire e_DataAddrMiss,e_Inst,Jump_e,NMI_int_en,int_en;
 	wire [4:0] Ecode;
 	wire [31:0] csr_nn;
 	wire [31:0] csr_sel;
@@ -170,7 +171,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	wire [31:0] csr_value;
 	wire [31:0] csr_mux[0:3];
 	reg [2:0] csr_num;
-    reg [1:0] csr_no;
+	reg [1:0] csr_no;
 	
 	assign inst = inst_data;
 	assign { funct7  , rs2  , rs1 , funct3  , rd , op } = inst;
@@ -212,25 +213,25 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign csr_addr[11:0] = inst[31:20];
 	assign csr_imm = { 27'd0 , inst[19:15] };
 	assign U_imm = { inst[31:12] , 12'h000 };
-	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE|CODE_BRCH)?inst[11:7]:inst[24:20]} };  
-    assign BJ_imm = { SI_imm[31:20] , (CODE_BRCH)? SI_imm[19:12]:U_imm[19:12] , SI_imm[0] , SI_imm[10:1] , 1'b0 };
+	assign SI_imm = { { 21{inst[31]} } , { inst[30:25] } , {(CODE_STORE|CODE_BRCH)?inst[11:7]:inst[24:20]} };
+	assign BJ_imm = { SI_imm[31:20] , (CODE_BRCH)? SI_imm[19:12]:U_imm[19:12] , SI_imm[0] , SI_imm[10:1] , 1'b0 };
 
 	assign NMI_int_en = NMIE_bit & NMI_S;
 	assign int_en = MIE_bit & MEIE_bit & INT_S;
-    assign addr_en = (stg>'d1)&(CODE_LOAD|CODE_STORE);
+	assign addr_en = (stg>'d1)&(CODE_LOAD|CODE_STORE);
 	assign e_DataAddrMiss = addr_en&( (Awidth[0]&PADDR[0]) | (Awidth[1]&(PADDR[0]|PADDR[1])) );
 	assign e_Inst = (~(|outcode)) & (stg!='d0) ;
  	assign except_en = e_DataAddrMiss | e_Inst | CODE_EBRK | CODE_ECALL;
 	assign Jump_e = NMI_int_en|except_en|int_en;
 
-    assign Ecode = ((~reset)|NMI_int_en)? 5'd31 : (int_en|CODE_ECALL)? 5'd11 : (CODE_EBRK)? 5'd3:
+	assign Ecode = ((~reset)|NMI_int_en)? 5'd31 : (int_en|CODE_ECALL)? 5'd11 : (CODE_EBRK)? 5'd3:
 							  (e_Inst)? 5'd2 : (e_DataAddrMiss)? ((CODE_LOAD)? 5'd4 : 5'd6) : 5'd0  ;
 
-    assign s2_num = ((stg>='d6)|CODE_MRET)? 2'd0 : (CODE_ALUI|CODE_JALR|CODE_LOAD|CODE_STORE)? 2'd2 : 2'd1;
-    assign s2_sel[2] = SI_imm;
-    assign s2_sel[1] = x2;
-    assign s2_sel[0] = 'd0;
-    assign S2_ImmReg = s2_sel[s2_num];
+	assign s2_num = ((stg>='d6)|CODE_MRET)? 2'd0 : (CODE_ALUI|CODE_JALR|CODE_LOAD|CODE_STORE)? 2'd2 : 2'd1;
+	assign s2_sel[2] = SI_imm;
+	assign s2_sel[1] = x2;
+	assign s2_sel[0] = 'd0;
+	assign S2_ImmReg = s2_sel[s2_num];
 
 	assign csr_sel = (csr_imac) ?  csr_imm  : x1;
 	assign Add_Sub_Sel = ~( (CODE_ALUR&ALU_sub) | ((CODE_ALUR|CODE_ALUI)&ALU_cmp) | CODE_BRCH );
@@ -240,11 +241,20 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	//memory access circuit
 	assign PADDR = ALU_add_sub;
-    assign s_ext = Load_sub;
+	assign s_ext = Load_sub;
 	assign PWDATA = x2;
-    assign PWRITE  = (stg>'d1)&(CODE_STORE); //
-    assign PSEL = addr_en;
-	assign PENABLE = (stg=='d3)& addr_en &(~e_DataAddrMiss);
+	assign PWRITE  = (stg>'d1)&(CODE_STORE); //
+	assign PSEL = addr_en;
+	generate
+		if( WRITE_CYCLE_OPT == 1 ) begin
+			if( (MEMORY_TYPE == 1)||(MEMORY_TYPE == 2) )
+				assign PENABLE = ((CODE_LOAD)?(stg=='d3):(stg=='d2)) & addr_en &(~e_DataAddrMiss);
+			else
+				assign PENABLE = ( (Awidth=='d0|CODE_LOAD)?(stg=='d3):(stg=='d2) ) & addr_en &(~e_DataAddrMiss);
+		end
+		else
+			assign PENABLE = (stg=='d3) & addr_en &(~e_DataAddrMiss);
+	endgenerate
 
     //  latency or start trigger of sequential shifter
 	generate
@@ -356,7 +366,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
     assign we_reg = ( (stg=='d1)&(CODE_LUI|CODE_AUIPC|CODE_JAL) )
                   | ( (stg=='d2)&( ((~stillshift)&(~fsft)&(CODE_ALUR|CODE_ALUI)) | CODE_JALR ) )
-                  | ( (stg=='d3)&CODE_LOAD) ;
+                  | ( PENABLE&CODE_LOAD) ;
 
 	assign we_csr =   (stg=='d2)&CODE_CSR;
 
@@ -391,13 +401,13 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	assign x1xd = ( we_csr ) ? rd : rs1;
 	assign reg1en = (stg=='d5) | (we_csr&(x1xd>'d0));
-    assign reg1addr = (stg>='d6)? ((NMI_int_en)? {3'b101,LP_CN0}:{3'b100,LP_CN0}) : (stg=='d5)? {3'b100,LP_CN2} : ((stg<'d5)&CODE_MRET) ? {3'b100,LP_CN1} : {1'b0,x1xd}; //
-    assign x1val= xd1;
+	assign reg1addr = (stg>='d6)? ((NMI_int_en)? {3'b101,LP_CN0}:{3'b100,LP_CN0}) : (stg=='d5)? {3'b100,LP_CN2} : ((stg<'d5)&CODE_MRET) ? {3'b100,LP_CN1} : {1'b0,x1xd}; //
+	assign x1val= xd1;
 
 	assign x2xd = ( we_reg ) ? rd : rs2;
-	assign reg2en = (we_csr&(csr_num<='d1)) | (we_reg&(x2xd>'d0)) | (stg=='d6) | (stg=='d5); 
-    assign reg2addr = (stg=='d6)? {3'b100,LP_CN1} : (stg=='d5)? {3'b100,LP_CN3} : ((stg<'d5)&CODE_CSR)? {3'b100,csr_num[2:0]} : {1'b0,x2xd} ;
-    assign x2val= xd2;
+	assign reg2en = (we_csr&(csr_num<='d1)) | (we_reg&(x2xd>'d0)) | (stg=='d6) | (stg=='d5);
+	assign reg2addr = (stg=='d6)? {3'b100,LP_CN1} : (stg=='d5)? {3'b100,LP_CN3} : ((stg<'d5)&CODE_CSR)? {3'b100,csr_num[2:0]} : {1'b0,x2xd} ;
+	assign x2val= xd2;
 
     always @(posedge clk) begin
         if(~reg1en) x1 <= greg[reg1addr];
@@ -425,15 +435,15 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign cndtn[2'b01] = cndtn[2'b00];//1'bx;//
 	assign cndtn[2'b10] = cmp_sg;
 	assign cndtn[2'b11] = cmp_us;
-    assign BRANCH_F = (cndtn[BRCH_sub] == compliment)&CODE_BRCH ;
+	assign BRANCH_F = (cndtn[BRCH_sub] == compliment)&CODE_BRCH ;
 
 	//assign pc_calc_transfer = pc + ( (~(CODE_JAL|CODE_BRCH))? { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} } :  BJ_imm[2 +: VALID_PC_WIDTH]);
 	assign pc_calc_transfer = pc + ( (CODE_JAL|CODE_BRCH)? BJ_imm[2 +: VALID_PC_WIDTH] : { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} } );
 
-    localparam LP_PC_SEL0 = 1;  //1
-    localparam LP_PC_SEL1 = 0;  //0
-    localparam LP_PC_SEL2 = 2;  //2
-    assign sel_pc = ((stg>='d6)|CODE_MRET|CODE_JALR)? LP_PC_SEL0 : //MRET , x + i ,interrupt/except ,NMI
+	localparam LP_PC_SEL0 = 1;  //1
+	localparam LP_PC_SEL1 = 0;  //0
+	localparam LP_PC_SEL2 = 2;  //2
+	assign sel_pc = ((stg>='d6)|CODE_MRET|CODE_JALR)? LP_PC_SEL0 : //MRET , x + i ,interrupt/except ,NMI
                                           (BRANCH_F)? LP_PC_SEL1 : //branch false(Others_xd,pc + 4)
                                                       LP_PC_SEL2 ; //branch true(pc + b) , jal(pc + j) , pc + 4
 	assign sel_p[LP_PC_SEL0] = ALU_add_sub[2 +: VALID_PC_WIDTH]; /*mtvec,NMI,MRET,JALR*/
@@ -530,8 +540,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 endmodule
 
-//`define MEM_QUAD_SV	//For Intel(Altera) Quartus and must set Compiler to System Verilog
-//`define MEM_QUAD_V
+
 
 /* main memory */
 module EXT_RAM( input wire [31:0] d22, addr1 , addr2 , 
@@ -539,67 +548,81 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
                 input wire [3:0] wstrb,
 				    output reg [31:0] q1 , q2 );
 
-    parameter INST_ADDR_WIDTH = 10;
-	 parameter RAM_ADJUSTOR = 0;
+	parameter INST_ADDR_WIDTH = 10;
+	parameter RAM_SIZE = 4;
+	parameter MEMORY_TYPE = 0;
+	parameter LOAD_HEX_FILE = "test.hex" ;
+	localparam MEMORY_CAPA = ((RAM_SIZE*1024/4) - 1);
+	
+	reg [31:0] Load_buffer[0:MEMORY_CAPA];
+	reg [7:0] mem0[0:MEMORY_CAPA];
+	reg [7:0] mem1[0:MEMORY_CAPA];
+	reg [7:0] mem2[0:MEMORY_CAPA];
+	reg [7:0] mem3[0:MEMORY_CAPA];
+	reg [31:0] memA[0:MEMORY_CAPA];
 	wire [INST_ADDR_WIDTH-1:0] ad1,ad2;
+
 	assign ad1 = addr1[2 +: INST_ADDR_WIDTH];
 	assign ad2 = addr2[2 +: INST_ADDR_WIDTH];
 
 	integer byte_no;
-
-// Quad divided memory using SystemVerilog expression for intel quartus
-`ifdef MEM_QUAD_SV
-	reg [3:0][7:0] mem[0:2**INST_ADDR_WIDTH - 1 - RAM_ADJUSTOR];
-	always @(posedge clk) begin
-		q1 <= mem[ ad1 ];
-		//q2 <= mem[ ad2 ];
-		for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 ) begin
-			if( ~(we2&wstrb[byte_no]) ) q2[ 8*byte_no +: 8 ] <= mem[ ad2 ][byte_no];
-			if(  we2&wstrb[byte_no]  ) mem[ ad2 ][byte_no] <= d22[ 8*byte_no +: 8 ];
-		end
-	end
-
-// Quad dividec meory using Verilog expression
-`elsif MEM_QUAD_V
-	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1 - RAM_ADJUSTOR];
-	always @(posedge clk) begin
-		q1 <= mem[ ad1 ];
-		//q2 <= mem[ ad2 ];
-		for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 ) begin
-			if( ~(we2&wstrb[byte_no]) ) q2[ 8*byte_no +: 8 ] <= mem[ ad2 ][8*byte_no +: 8];
-			if( we2&wstrb[byte_no] ) mem[ ad2 ][ 8*byte_no +: 8 ] <= d22[ 8*byte_no +: 8 ];
-		end
-	end
-
-// any verilog can compile
-`else
-	reg [31:0] mem[0:2**INST_ADDR_WIDTH - 1 -RAM_ADJUSTOR];
-	wire [7:0] din2[0:3];
-	wire [1:0] wea;
-	assign wea[0] = we2&(wstrb[1] | wstrb[0]);
-	assign wea[1] = we2&(wstrb[3] | wstrb[2]);
-
 	genvar byte_no2;
-	generate
-		for( byte_no2 = 0 ; byte_no2 < 4 ; byte_no2 = byte_no2 + 1 ) begin : mem_choice
-			assign din2[byte_no2] =   (wstrb[byte_no2]) ? d22[8*byte_no2 +: 8] : q2[8*byte_no2 +: 8];
+	generate 
+		if( MEMORY_TYPE == 1 ) begin // Quad Block Memory
+			always @(posedge clk) begin
+				q1 <= { mem3[ad1], mem2[ad1], mem1[ad1], mem0[ad1] };
+				if( ~(we2&wstrb[0]) ) q2[ 7: 0] <= mem0[ ad2 ];
+				if( (we2&wstrb[0]) ) mem0[ ad2 ] <= d22[ 7: 0];
+				if( ~(we2&wstrb[1]) ) q2[15: 8] <= mem1[ ad2 ];
+				if( (we2&wstrb[1]) ) mem1[ ad2 ] <= d22[15: 8];
+				if( ~(we2&wstrb[2]) ) q2[23:16] <= mem2[ ad2 ];
+				if( (we2&wstrb[2]) ) mem2[ ad2 ] <= d22[23:16];
+				if( ~(we2&wstrb[3]) ) q2[31:24] <= mem3[ ad2 ];
+				if( (we2&wstrb[3]) ) mem3[ ad2 ] <= d22[31:24];
+			end
+
+		end else if( MEMORY_TYPE == 2 ) begin //Quad divided meory using Verilog expression
+			always @(posedge clk) begin
+				q1 <= memA[ ad1 ];
+				for( byte_no = 0 ; byte_no < 4 ; byte_no = byte_no + 1 ) begin
+					if( ~(we2&wstrb[byte_no]) ) q2[ 8*byte_no +: 8 ] <= memA[ ad2 ][8*byte_no +: 8];
+					if( we2&wstrb[byte_no] ) memA[ ad2 ][ 8*byte_no +: 8 ] <= d22[ 8*byte_no +: 8 ];
+				end
+			end
+
+		end else begin // any verilog can compile
+			wire [7:0] din2[0:3];
+			wire [1:0] wea;
+			assign wea[0] = we2&(wstrb[1] | wstrb[0]);
+			assign wea[1] = we2&(wstrb[3] | wstrb[2]);
+
+			for( byte_no2 = 0 ; byte_no2 < 4 ; byte_no2 = byte_no2 + 1 ) begin : mem_choice
+				assign din2[byte_no2] =   (wstrb[byte_no2]) ? d22[8*byte_no2 +: 8] : q2[8*byte_no2 +: 8];
+			end
+			
+			always @(posedge clk) begin
+				q1 <= memA[ ad1 ];
+				if( ~wea[0] ) q2[ 0 +: 16] <= memA[ ad2 ][ 0 +: 16];
+				if( ~wea[1] ) q2[16 +: 16] <= memA[ ad2 ][16 +: 16];
+				if( wea[0] ) memA[ ad2 ][ 0 +: 16] <= { din2[1] , din2[0] };
+				if( wea[1] ) memA[ ad2 ][16 +: 16] <= { din2[3] , din2[2] };
+			end
 		end
 	endgenerate
-			
-	always @(posedge clk) begin
-		q1 <= mem[ ad1 ];
-		//q2 <= mem[ ad2 ];
-		if( ~wea[0] ) q2[ 0 +: 16] <= mem[ ad2 ][ 0 +: 16];
-		if( ~wea[1] ) q2[16 +: 16] <= mem[ ad2 ][16 +: 16];
-		if( wea[0] ) mem[ ad2 ][ 0 +: 16] <= { din2[1] , din2[0] };
-		if( wea[1] ) mem[ ad2 ][16 +: 16] <= { din2[3] , din2[2] };
-	end
-`endif
 
 	initial begin  //memory initialize
-		$readmemh( "./test.hex" , mem ); //program read from hex file
+		$readmemh( LOAD_HEX_FILE , Load_buffer ); //program read from hex file 
+		if( MEMORY_TYPE == 1 ) begin
+			for( byte_no = 0 ; byte_no <= MEMORY_CAPA ; byte_no = byte_no + 1 )
+				{ mem3[byte_no], mem2[byte_no], mem1[byte_no], mem0[byte_no] } = Load_buffer[byte_no];
+		end
+		else begin
+			for( byte_no = 0 ; byte_no <= MEMORY_CAPA ; byte_no = byte_no + 1 )
+				memA[byte_no]  = Load_buffer[byte_no];
+		end
 	end //memory initial end 
 	
+
 endmodule 
 
 /* unified peripheral */
@@ -872,28 +895,30 @@ endmodule
 
 /* data transfer control amang cpu,memory,peripherals */
 module bus_master( input wire [31:0] dataFp1,dataFp2 ,addrbus, data_from_cpu ,
-						 output wire [31:0] data2cpu , data2Peri ,
-                         input wire [1:0] AWidth , input wire s_ext ,
+						output wire [31:0] data2cpu , data2Peri ,
+                   input wire [1:0] AWidth , input wire s_ext ,
 						 input wire cs, wr , output wire cs1,cs2 ,
                          output wire [3:0] byte_write );
     // addr : 32'h0000_0000 - 32'h0000_0fff as RAM
     // addr : 32'h0001_0000 - 32'h0001_003f as Super_IO
 	parameter RESET_VECTOR  = 32'h0000_0000;
-    parameter INST_ADDR_WIDTH = 10;
-	wire chk1 = (addrbus[31:INST_ADDR_WIDTH+2] == RESET_VECTOR[31:INST_ADDR_WIDTH+2]); // main memory
+	parameter INST_ADDR_WIDTH = 10;
+	parameter RAM_SIZE = 4;
+	wire chk1 = (addrbus[31:INST_ADDR_WIDTH+2] == RESET_VECTOR[31:INST_ADDR_WIDTH+2]) 
+												& ( addrbus[INST_ADDR_WIDTH+1:2] <= ((RAM_SIZE*1024/4)-1) ) ; // main memory
 	wire chk2 = (addrbus[31:6]  == 26'h000_0400); // unified peripheral
 	assign cs1 = cs & chk1;
 	assign cs2 = cs & chk2;
 
-    wire [7:0] qq[0:3];
-    wire [31:0] lms[0:3];
+   wire [7:0] qq[0:3];
+   wire [31:0] lms[0:3];
 	reg  [31:0] data_choice;
-    assign { qq[3] , qq[2] , qq[1] , qq[0] } = data_choice;
-    assign lms[0] = { {24{s_ext&lms[0][ 7]}} , { qq[addrbus[1:0]]} };
-    assign lms[1] = { {16{s_ext&lms[1][15]}} , { qq[{addrbus[1],1'b1}] , qq[{addrbus[1],1'b0}] } };
-    assign lms[2] = { qq[3] , qq[2] , qq[1] , qq[0] };
-    assign lms[3] = { qq[3] , qq[2] , qq[1] , qq[0] };
-    assign data2cpu = lms[AWidth];//data_choice;
+   assign { qq[3] , qq[2] , qq[1] , qq[0] } = data_choice;
+   assign lms[0] = { {24{s_ext&lms[0][ 7]}} , { qq[addrbus[1:0]]} };
+   assign lms[1] = { {16{s_ext&lms[1][15]}} , { qq[{addrbus[1],1'b1}] , qq[{addrbus[1],1'b0}] } };
+   assign lms[2] = { qq[3] , qq[2] , qq[1] , qq[0] };
+   assign lms[3] = { qq[3] , qq[2] , qq[1] , qq[0] };
+   assign data2cpu = lms[AWidth];//data_choice;
 	always @(*) begin
 		case( { chk2,chk1 } )
 			2'b01 : data_choice <= dataFp1; //memory
@@ -902,12 +927,12 @@ module bus_master( input wire [31:0] dataFp1,dataFp2 ,addrbus, data_from_cpu ,
 		endcase
 	end
 
-    wire [31:0] sms[0:3];
-    assign sms[0] = { data_from_cpu[7:0] , data_from_cpu[7:0] , data_from_cpu[7:0] , data_from_cpu[7:0] };
-    assign sms[1] = { data_from_cpu[15:0] , data_from_cpu[15:0] };
-    assign sms[2] = data_from_cpu;
-    assign sms[3] = data_from_cpu;
-    assign data2Peri = sms[AWidth];
+	wire [31:0] sms[0:3];
+	assign sms[0] = { data_from_cpu[7:0] , data_from_cpu[7:0] , data_from_cpu[7:0] , data_from_cpu[7:0] };
+	assign sms[1] = { data_from_cpu[15:0] , data_from_cpu[15:0] };
+	assign sms[2] = data_from_cpu;
+	assign sms[3] = data_from_cpu;
+	assign data2Peri = sms[AWidth];
 
     function [3:0] wstb_func( input wra , input [1:0] bwa , adl2 );
         casex( {wra,bwa,adl2} )
@@ -931,45 +956,54 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 				output wire [2:0] FullColor_LED
                 ,output wire [6:0] LCD_out );
 
-    parameter INSTRUCTION_RESET_VECTOR = 32'h0000_0000;
-    parameter INSTRUCTION_ADDRESS_WIDTH = 10;
-    
+	parameter INSTRUCTION_RESET_VECTOR = 32'h0000_0000;
+	parameter RAM_SIZE = 4; // UNIT : kbyte
+	parameter INSTRUCTION_ADDRESS_WIDTH = $clog2(RAM_SIZE*1024) - 2 ;
+	parameter WRITE_CYC_OPTIMIZE = 0;
+	parameter MEMORY_TYPE = 0;
+	parameter LOAD_FILE = "test.hex" ;
+	
 	wire	[31:0]	PRDATA1,PRDATA2;
-	wire			PSEL1,PSEL2,INT_S;
+	wire				PSEL1,PSEL2,INT_S;
 	wire	[31:0]	inst_addr,inst_data;
 	wire	[31:0]	PADDR,PRDATA,PWDATA,PWDATA2;
-	wire			PENABLE,PWRITE,PSEL,sign_ext;
-    wire    [3:0]   PSTRB;
-	wire	[1:0]	data_width;
+	wire				PENABLE,PWRITE,PSEL,sign_ext;
+	wire	[3:0]		PSTRB;
+	wire	[1:0]		data_width;
 	wire	[14:0]	opecode;
 
-    wire    tgl_out;
-    wire    [2:0] LED_wrapper;
+	wire    tgl_out;
+	wire    [2:0] LED_wrapper;
 
-    assign  FullColor_LED[2:0] = LED_wrapper[2:0];
+	assign  FullColor_LED[2:0] = LED_wrapper[2:0];
 
-	riscv32core_rv32i #( .RESET_VECTOR(INSTRUCTION_RESET_VECTOR) , .VALID_PC_WIDTH(INSTRUCTION_ADDRESS_WIDTH) ) 
-        cpu1( .reset(reset), .clk(clock) , .NMI_S(1'b0) , .INT_S(INT_S) , 
+	riscv32core_rv32i
+	#( .RESET_VECTOR(INSTRUCTION_RESET_VECTOR), .VALID_PC_WIDTH(INSTRUCTION_ADDRESS_WIDTH),
+		.WRITE_CYCLE_OPT(WRITE_CYC_OPTIMIZE), .MEMORY_TYPE(MEMORY_TYPE) ) 
+		cpu1( .reset(reset), .clk(clock) , .NMI_S(1'b0) , .INT_S(INT_S) , 
 			  .inst_addr(inst_addr) , .inst_data(inst_data) ,  
 			  .PADDR(PADDR) , .PRDATA(PRDATA) , .PWDATA(PWDATA) ,
 			  .PENABLE(PENABLE) , .PWRITE(PWRITE) , .PSEL(PSEL) , .Awidth(data_width), .s_ext(sign_ext),
 			  .outcode(opecode) );
 
-	bus_master       #( .RESET_VECTOR(INSTRUCTION_RESET_VECTOR) , .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) ) 
-                    bm1( .addrbus(PADDR)  , .data_from_cpu(PWDATA) , .data2Peri(PWDATA2),
-						 .data2cpu(PRDATA), .dataFp1(PRDATA1), .dataFp2(PRDATA2), 
-                         .AWidth(data_width) , .s_ext(sign_ext), .wr(PWRITE) , .byte_write(PSTRB),
-						 .cs(PSEL), .cs1(PSEL1), .cs2(PSEL2) );
+	bus_master  #(	.RESET_VECTOR(INSTRUCTION_RESET_VECTOR) , 
+						.INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH),
+						.RAM_SIZE(RAM_SIZE) ) 
+             bm1( .addrbus(PADDR)  , .data_from_cpu(PWDATA) , .data2Peri(PWDATA2),
+						.data2cpu(PRDATA), .dataFp1(PRDATA1), .dataFp2(PRDATA2), 
+                  .AWidth(data_width) , .s_ext(sign_ext), .wr(PWRITE) , .byte_write(PSTRB),
+						.cs(PSEL), .cs1(PSEL1), .cs2(PSEL2) );
 
-	EXT_RAM  #( .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) , .RAM_ADJUSTOR(0) ) 
-                 ram1(  .clk(clock) , .reset(reset) ,
-						.addr1(inst_addr) ,
-						.q1(inst_data) ,
-						.addr2(PADDR) , 
-						.d22(PWDATA2),
-						.q2(PRDATA1),
-						.we2(PENABLE & PSEL1),
-                  .wstrb(PSTRB) );
+	EXT_RAM  #( .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) , .LOAD_HEX_FILE(LOAD_FILE),
+					.RAM_SIZE(RAM_SIZE), .MEMORY_TYPE(MEMORY_TYPE) ) 
+         ram1( .clk(clock) , .reset(reset) ,
+					.addr1(inst_addr) ,
+					.q1(inst_data) ,
+					.addr2(PADDR) , 
+					.d22(PWDATA2),
+					.q2(PRDATA1),
+					.we2(PENABLE & PSEL1),
+               .wstrb(PSTRB) );
 
 	Super_IO pripheral1(	.clk(clock),
 							.reset(reset) ,
