@@ -873,12 +873,12 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 	parameter MEMORY_TYPE = 0;
 	parameter LOAD_FILE = "test.hex" ;
 
-//    `include "SelPara.v"
     parameter MTVAL_C = 12'h102;
     parameter XD_C = 16'h2130;
     parameter CN_C = 18'o015342;
     parameter PCSEL_C = 6'o10;
     parameter CSR_C = 12'o2130;
+
 
 	wire	[31:0]	PRDATA1,PRDATA2;
 	wire				PSEL1,PSEL2,INT_S;
