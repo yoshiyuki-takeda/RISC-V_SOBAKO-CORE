@@ -58,11 +58,13 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	parameter RESET_VECTOR  = 32'h0000_0000;
 	parameter VALID_PC_WIDTH = 10;
 	parameter NMI_VECTOR    = 32'h0000_1230;
-	parameter DEFAULT_MTVEC = 32'h0000_0050;
-	parameter SHIFT_SELECTOR = 0;
+    parameter ENABLE_NMI_VEC = 1'b1;
+	parameter DEFAULT_MTVEC = 32'h0000_0040;
+	parameter SHIFT_SELECTOR = 0;  // shift 
 	parameter SHIFT_LATENCY = 1;
 	parameter WRITE_CYCLE_OPT = 0;
 	parameter MEMORY_TYPE = 0;
+    parameter REGISTER_EXPRESSION = 0;
 
     /*function declaration   */
 	function LUT_sel_or( input sel12 , sel1 , sel2a , sel2b );
@@ -145,10 +147,10 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	reg [VALID_PC_WIDTH-1:0] pc;
 	reg [2:0]  stg;
 	wire cndtn[3:0];
-	wire BRANCH_F;
+	wire BRANCH_T;
 	wire exec_op;
-	wire [VALID_PC_WIDTH-1:0] pc_calc,pc_calc_transfer,pc_add_sel[0:2],sel_p[0:2];
-	wire [1:0] sel_pc,pc_add_num;
+	wire [VALID_PC_WIDTH-1:0] pc_calc,pc_calc_transfer,sel_p[0:2]; //,pc_add_sel[0:2]
+	wire [1:0] sel_pc;//,pc_add_num;
 
 	reg [31:0] x1,x2;
 	reg [4:0] q;
@@ -165,11 +167,9 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 
 	wire e_DataAddrMiss,e_Inst,Jump_e,NMI_int_en,int_en;
 	wire [4:0] Ecode;
-	wire [31:0] csr_nn;
-	wire [31:0] csr_sel;
+	wire [31:0] csr_nn,csr_sel,csr_value,csr_mux[0:3];
 	reg MIE_bit,MPIE_bit,MEIE_bit,NMIE_bit;
-	wire [31:0] csr_value;
-	wire [31:0] csr_mux[0:3];
+	wire [31:0] other_pc;
 	reg [2:0] csr_num;
 	reg [1:0] csr_no;
 	
@@ -248,12 +248,12 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	generate
 		if( WRITE_CYCLE_OPT == 1 ) begin
 			if( (MEMORY_TYPE == 1)||(MEMORY_TYPE == 2) )
-				assign PENABLE = ((CODE_LOAD)?(stg=='d3):(stg=='d2)) & addr_en &(~e_DataAddrMiss);
+				assign PENABLE = ((CODE_LOAD)?(stg=='d3):(stg=='d2)) & addr_en & (~Jump_e) ;
 			else
-				assign PENABLE = ( (Awidth=='d0|CODE_LOAD)?(stg=='d3):(stg=='d2) ) & addr_en &(~e_DataAddrMiss);
+				assign PENABLE = ( (Awidth=='d0|CODE_LOAD)?(stg=='d3):(stg=='d2) ) & addr_en & (~Jump_e);
 		end
 		else
-			assign PENABLE = (stg=='d3) & addr_en &(~e_DataAddrMiss);
+			assign PENABLE = (stg=='d3) & addr_en &(~Jump_e);
 	endgenerate
 
     //  latency or start trigger of sequential shifter
@@ -351,7 +351,8 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign alu_sel[2] = {31'd0,cmp_sg};
 	assign alu_sel[3] = {31'd0,cmp_us};
 
-    assign Others_xd = ( (stg=='d5)? {NMI_S|INT_S,26'd0,Ecode} : ((stg<'d5)&CODE_LUI)? 32'd0 : inst_addr ) 
+	assign other_pc = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-2)]  , pc , 2'd0};
+	assign Others_xd = ( (stg=='d5)? {NMI_S|INT_S,26'd0,Ecode} : ((stg<'d5)&CODE_LUI)? 32'd0 : other_pc ) 
                                        + ( (stg>='d5) ? 32'd0 : (CODE_AUIPC|CODE_LUI) ? U_imm : 32'd4 );
 
 	generate
@@ -364,26 +365,36 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 		end
 	endgenerate
 
-    assign we_reg = ( (stg=='d1)&(CODE_LUI|CODE_AUIPC|CODE_JAL) )
-                  | ( (stg=='d2)&( ((~stillshift)&(~fsft)&(CODE_ALUR|CODE_ALUI)) | CODE_JALR ) )
-                  | ( PENABLE&CODE_LOAD) ;
+	assign we_reg = (~Jump_e)
+	              & ( ( (stg=='d1)&(CODE_LUI|CODE_AUIPC|CODE_JAL) )
+                 | ( (stg=='d2)&( ((~stillshift)&(~fsft)&(CODE_ALUR|CODE_ALUI)) | CODE_JALR ) )
+                 | ( PENABLE&CODE_LOAD) ) ;
 
-	assign we_csr =   (stg=='d2)&CODE_CSR;
+	assign we_csr =  (~Jump_e)&(stg=='d2)&CODE_CSR;
 
     //assign xd1 = XXd1_sel( e_DataAddrMiss , e_Inst , (stg<'d5)&CODE_CSR , PADDR , inst , csr_value  );
+    parameter MTVAL_CHOICE = 12'h012 ; 
+    wire [31:0] mtval_val [0:2];
+    wire [2:0]  mtval_cndt;
+    assign mtval_cndt = { (stg<'d5)&CODE_CSR , e_DataAddrMiss , e_Inst };
+    assign mtval_val[2] = csr_value;
+    assign mtval_val[1] = PADDR;
+    assign mtval_val[0] = inst;
+
     always @(*) begin
-        casex( { e_Inst , e_DataAddrMiss } ) //  (stg<'d5)&CODE_CSR                  
-            2'b1x: xd1_sel = inst;  //    
-            2'b01: xd1_sel = PADDR;
-            default: xd1_sel = csr_value;
+        casex( {mtval_cndt[MTVAL_CHOICE[11:8]] ,  mtval_cndt[MTVAL_CHOICE[7:4]]} )
+            2'b1x: xd1_sel = mtval_val[ MTVAL_CHOICE[11:8] ];
+            2'b01: xd1_sel = mtval_val[ MTVAL_CHOICE[7:4] ];
+            default: xd1_sel = mtval_val[ MTVAL_CHOICE[3:0] ];
         endcase
     end
     assign xd1 = xd1_sel;
 
-    localparam LP_XD0 = 2;
-    localparam LP_XD1 = 3;
-    localparam LP_XD2 = 0;
-    localparam LP_XD3 = 1;
+    parameter LP_XD_CHOICE = 16'h0123 ;
+    localparam LP_XD0 = LP_XD_CHOICE[15:12];
+    localparam LP_XD1 = LP_XD_CHOICE[11:8];
+    localparam LP_XD2 = LP_XD_CHOICE[7:4];
+    localparam LP_XD3 = LP_XD_CHOICE[3:0];
 
 	assign xd2_sn = ((stg<'d5)&(CODE_ALUR|CODE_ALUI))? LP_XD2 : ((stg<'d5)&(CODE_LOAD)) ? LP_XD3 : ((stg<'d5)&(CODE_CSR))? LP_XD1 : LP_XD0 ;
 	assign xd2_sel[LP_XD3] = PRDATA;
@@ -392,16 +403,18 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign xd2_sel[LP_XD0] = Others_xd;
 	assign xd2 = xd2_sel[xd2_sn];
 
-    localparam LP_CN0 = 3'd0 ; // mtvec    32
-    localparam LP_CN1 = 3'd1 ; // mepc     33
-    localparam LP_CN2 = 3'd3 ; // mtval  35
-    localparam LP_CN3 = 3'd5 ; // mcause  37
-    localparam LP_CN4 = 3'd2 ; // misa    34
-    localparam LP_CN5 = 3'd4 ; // others, undefined  36
+    parameter LP_CN_CHOICE = 18'o012345 ;
+    localparam LP_CN0 = LP_CN_CHOICE[17:15] ; // mtvec    32
+    localparam LP_CN1 = LP_CN_CHOICE[14:12] ; // mepc     33
+    localparam LP_CN2 = LP_CN_CHOICE[11:9] ; // mtval  35
+    localparam LP_CN3 = LP_CN_CHOICE[8:6] ; // mcause  37
+    localparam LP_CN4 = LP_CN_CHOICE[5:3] ; // misa    34
+    localparam LP_CN5 = LP_CN_CHOICE[2:0] ; // others, undefined  36
 
 	assign x1xd = ( we_csr ) ? rd : rs1;
 	assign reg1en = (stg=='d5) | (we_csr&(x1xd>'d0));
-	assign reg1addr = (stg>='d6)? ((NMI_int_en)? {3'b101,LP_CN0}:{3'b100,LP_CN0}) : (stg=='d5)? {3'b100,LP_CN2} : ((stg<'d5)&CODE_MRET) ? {3'b100,LP_CN1} : {1'b0,x1xd}; //
+	assign reg1addr = (stg>='d6)? ((NMI_int_en&ENABLE_NMI_VEC)? {3'b101,LP_CN0}:{3'b100,LP_CN0}) : 
+                      (stg=='d5)? {3'b100,LP_CN2} : ((stg<'d5)&CODE_MRET) ? {3'b100,LP_CN1} : {1'b0,x1xd}; //
 	assign x1val= xd1;
 
 	assign x2xd = ( we_reg ) ? rd : rs2;
@@ -409,49 +422,61 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign reg2addr = (stg=='d6)? {3'b100,LP_CN1} : (stg=='d5)? {3'b100,LP_CN3} : ((stg<'d5)&CODE_CSR)? {3'b100,csr_num[2:0]} : {1'b0,x2xd} ;
 	assign x2val= xd2;
 
-    always @(posedge clk) begin
-        if(~reg1en) x1 <= greg[reg1addr];
-        if(reg1en) greg[reg1addr] <= x1val;
-    end
-    always @(posedge clk) begin
-        if(~reg2en) x2 <= greg[reg2addr];
-        if(reg2en) greg[reg2addr] <= x2val;
-    end
+    generate
+        if( REGISTER_EXPRESSION == 1 ) begin
+            always @(posedge clk) begin
+                x1 <= greg[reg1addr];
+                if(reg1en) greg[reg1addr] <= x1val;
+            end
+            always @(posedge clk) begin
+                x2 <= greg[reg2addr];
+                if(reg2en) greg[reg2addr] <= x2val;
+            end
+        end
+        else begin
+            always @(posedge clk) begin
+                if(~reg1en) x1 <= greg[reg1addr];
+                if(reg1en) greg[reg1addr] <= x1val;
+            end
+            always @(posedge clk) begin
+                if(~reg2en) x2 <= greg[reg2addr];
+                if(reg2en) greg[reg2addr] <= x2val;
+            end
+        end
+    endgenerate
 
     // h20(d32) : mtvec , h21(d33) : mepc , h22(d34) : mtval , h23(d35) : mcause , h24(d36) : misa
     integer k;
     initial begin
         for( k=0 ; k<48 ; k=k+1 )
             if( k == {3'b100,LP_CN0} ) greg[k] = DEFAULT_MTVEC;
+            else if( k == {3'b100,LP_CN1} ) greg[k] = 'd20;
             else if( k == {3'b100,LP_CN4} ) greg[k] = { 2'b01 , 4'b0000 , 26'b00_0000_0000_0000_0001_0000_0000 };  // misa	ISA and extensions;;
             else if( k == {3'b101,LP_CN0} ) greg[k] = NMI_VECTOR;
             else          greg[k] = 'd0;
     end
 	
 	//program counter circuit
-	assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-2)]  , pc , 2'd0};
-
+	assign inst_addr = { RESET_VECTOR[31 -: (32-VALID_PC_WIDTH-2)]  , (~exec_op)? pc : pc_calc , 2'd0};
+	
 	assign cndtn[2'b00] = ~(|ALU_add_sub); // x1 == x2;  
 	assign cndtn[2'b01] = cndtn[2'b00];//1'bx;//
 	assign cndtn[2'b10] = cmp_sg;
 	assign cndtn[2'b11] = cmp_us;
-	assign BRANCH_F = (cndtn[BRCH_sub] == compliment)&CODE_BRCH ;
+	assign BRANCH_T = (cndtn[BRCH_sub] != compliment)&CODE_BRCH ;
 
-	//assign pc_calc_transfer = pc + ( (~(CODE_JAL|CODE_BRCH))? { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} } :  BJ_imm[2 +: VALID_PC_WIDTH]);
-	assign pc_calc_transfer = pc + ( (CODE_JAL|CODE_BRCH)? BJ_imm[2 +: VALID_PC_WIDTH] : { {(VALID_PC_WIDTH-1){1'b0}} , {1'b1} } );
+	assign pc_calc_transfer = pc + ( (CODE_JAL|BRANCH_T)? BJ_imm[2+:VALID_PC_WIDTH] : {{(VALID_PC_WIDTH-1){1'b0}},{1'b1}} );
 
-	localparam LP_PC_SEL0 = 1;  //1
-	localparam LP_PC_SEL1 = 0;  //0
-	localparam LP_PC_SEL2 = 2;  //2
+    parameter LP_PC_SEL_CHOICE = 6'o01 ;
+	localparam LP_PC_SEL0 = LP_PC_SEL_CHOICE[5:3];
+	localparam LP_PC_SEL1 = LP_PC_SEL_CHOICE[2:0];
 	assign sel_pc = ((stg>='d6)|CODE_MRET|CODE_JALR)? LP_PC_SEL0 : //MRET , x + i ,interrupt/except ,NMI
-                                          (BRANCH_F)? LP_PC_SEL1 : //branch false(Others_xd,pc + 4)
-                                                      LP_PC_SEL2 ; //branch true(pc + b) , jal(pc + j) , pc + 4
+                                                     LP_PC_SEL1 ; //branch true(pc + b) , jal(pc + j) , pc + 4
 	assign sel_p[LP_PC_SEL0] = ALU_add_sub[2 +: VALID_PC_WIDTH]; /*mtvec,NMI,MRET,JALR*/
-	assign sel_p[LP_PC_SEL1] = Others_xd[2 +: VALID_PC_WIDTH]; /* branch false */
-	assign sel_p[LP_PC_SEL2] = pc_calc_transfer; /*Branch true , Jal , pc+4*/
+	assign sel_p[LP_PC_SEL1] = pc_calc_transfer; /*Branch true , Jal , pc+4*/
 	assign pc_calc = sel_p[sel_pc];
 
-	assign exec_op = we_csr | we_reg | PENABLE | ((stg == 'd1)&(CODE_FENCE|CODE_FENCEI)) | ((stg == 'd2)&(CODE_MRET|CODE_BRCH)) ;
+	assign exec_op = (~Jump_e)&( we_csr | we_reg | PENABLE | ((stg == 'd1)&(CODE_FENCE|CODE_FENCEI)) | ((stg == 'd2)&(CODE_MRET|CODE_BRCH)) );
 
 	always @( posedge clk or negedge reset ) begin
 		if( ~reset )
@@ -469,17 +494,18 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 			stg <= 'd0;
 		else begin
 			if( exec_op )
-				stg <= 'd0;
+				stg <= 'd1;
 			else
-				stg <= ( ((stg<'d5)&Jump_e&(~exec_op))? 3'd4 : stg ) + ( ( (~Jump_e)&(stillshift|fsft) ) ? 3'd0 : 3'd1 );
+				stg <= ( ((stg<'d5)&Jump_e )? 3'd4 : stg ) + ( ( (~Jump_e)&(stillshift|fsft) ) ? 3'd0 : 3'd1 );
 		end
 	end
 
 	/*CSR*/
-    localparam LP_CSR0 = 2;
-    localparam LP_CSR1 = 3;
-    localparam LP_CSR2 = 0;
-    localparam LP_CSR3 = 1;
+    parameter LP_CSR_CHOICE = 12'o0123 ;
+    localparam LP_CSR0 = LP_CSR_CHOICE[11:9];
+    localparam LP_CSR1 = LP_CSR_CHOICE[8:6];
+    localparam LP_CSR2 = LP_CSR_CHOICE[5:3];
+    localparam LP_CSR3 = LP_CSR_CHOICE[2:0];
 
 	assign csr_mux[LP_CSR0] = { 19'd0,2'b11,3'd0,MPIE_bit,3'd0,MIE_bit,3'd0 }; // mstatus		Machine status register.;
 	assign csr_mux[LP_CSR1] = { 20'd0 , MEIE_bit , 11'd0 }; // mie			Machine interrupt-enable register.;
@@ -539,8 +565,6 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	end
 
 endmodule
-
-
 
 /* main memory */
 module EXT_RAM( input wire [31:0] d22, addr1 , addr2 , 
@@ -631,7 +655,7 @@ module Super_IO ( input wire clk,reset ,  input wire pe , rdwr , cs , input wire
 						output wire timer_out , timer_int ,
 						input wire sw1,
 						output wire [2:0] RGB_LED,
-						output wire [6:0] LCD,
+						output wire [21:0] LCD,
 						output wire tx_serial_out,
 						input  wire rx_serial_in
 						);
@@ -656,10 +680,11 @@ parameter PRIOD_WIDTH = 15;
 	wire tmr_reload = (tmr_reg == { WIDTH{1'b0} });
 
     reg LCD_tgl;
-	reg [2:0] LCD_bit[0:2];
+	reg [6:0] LCD_bit[0:5];
 	reg [2:0] LCD_com;
 	reg [PRIOD_WIDTH-1:0] LCD_tgl_period;
     wire [1:0] LCD_choice;
+    wire [17:0] LCD_out_pattern[0:2];
 
 	reg [2:0] LED_out;
 
@@ -668,8 +693,8 @@ parameter PRIOD_WIDTH = 15;
 
     assign we_tx = pe & cs & rdwr & (addr_in == 'd8);
     assign rd_rx = pe & cs & ~rdwr & (addr_in == 'd10);
-    suart_tx uart1_tx( .clk(clk) , .rst(reset) , .we(we_tx) , .tx_data(indata[7:0]) , .tx_serial(tx_serial_out) , .tx_empty(tx_ctrl)   );
-    suart_rx uart1_rx( .clk(clk) , .rst(reset) , .rd(rd_rx) , .buf_rx(rx_data_path) , .rx_serial(rx_serial_in)  , .valid_data(rx_ctrl) );
+    UART_TX_B uart1_tx( .clk(clk) , .rst(reset) , .we(we_tx) , .tx_data(indata[7:0]) , .tx_serial(tx_serial_out) , .tx_empty(tx_ctrl)   );
+    UART_RX_B uart1_rx( .clk(clk) , .rst(reset) , .rd(rd_rx) , .buf_rx(rx_data_path) , .rx_serial(rx_serial_in)  , .valid_data(rx_ctrl) );
 
 	/* LCD driver */
 	always @(posedge clk or negedge reset ) begin
@@ -688,8 +713,12 @@ parameter PRIOD_WIDTH = 15;
 		end
 	end
 
+    assign LCD_out_pattern[0] = { 1'b0, LCD_bit[5][1:0], 1'b0, LCD_bit[4][1:0], 1'b0, LCD_bit[3][1:0], 1'b0, LCD_bit[2][1:0], 1'b0, LCD_bit[1][1:0], 1'b0, LCD_bit[0][1:0] };
+    assign LCD_out_pattern[1] = {       LCD_bit[5][4:2],       LCD_bit[4][4:2],       LCD_bit[3][4:2],       LCD_bit[2][4:2],       LCD_bit[1][4:2],       LCD_bit[0][4:2] };
+    assign LCD_out_pattern[2] = { 1'b0, LCD_bit[5][6:5], 1'b0, LCD_bit[4][6:5], 1'b0, LCD_bit[3][6:5], 1'b0, LCD_bit[2][6:5], 1'b0, LCD_bit[1][6:5], 1'b0, LCD_bit[0][6:5] };
+
     assign LCD_choice = func_LCD_choice(LCD_com);
-	assign LCD = { LCD_com , LCD_bit[LCD_choice][2]^LCD_tgl , LCD_bit[LCD_choice][1]^LCD_tgl , LCD_bit[LCD_choice][0]^LCD_tgl , LCD_tgl };
+	assign LCD = { LCD_com[2:0] ,  LCD_out_pattern[LCD_choice][17:0]^LCD_tgl , LCD_tgl };
 
 	assign RGB_LED = LED_out;// LED output
 
@@ -703,7 +732,8 @@ parameter PRIOD_WIDTH = 15;
 
 			'd4 : outdata <= { {(32-3){1'bx}} , { LED_out } };   // GPIO output (RGB LED)
 			'd5 : outdata <= { {(32-1){1'bx}} , { sw1 } }; // GPIO input  (switch input)
-			'd6 : outdata <= { 23'dx , LCD_bit[2] , LCD_bit[1] , LCD_bit[0] };  // LCD pattern bit1
+			'd6 : outdata <= { 8'd0, 1'b0, LCD_bit[2], 1'b0, LCD_bit[1], 1'b0, LCD_bit[0] };  // LCD pattern bit1
+			'd7 : outdata <= { 8'd0, 1'b0, LCD_bit[5], 1'b0, LCD_bit[4], 1'b0, LCD_bit[3] };  // LCD pattern bit1
 
             'd9 : outdata <= { 31'dx , tx_ctrl };     // serial tx status register
             'd10: outdata <= { 24'dx , rx_data_path };// serial reciev data
@@ -717,9 +747,7 @@ parameter PRIOD_WIDTH = 15;
 			rld_reg <= { WIDTH{1'b1} };
 			tmr_en <= 'b0;
 			tmr_IE <= 'b0;
-			LCD_bit[0] <= 'b111;
-			LCD_bit[1] <= 'b111;
-			LCD_bit[2] <= 'b011;
+			{ LCD_bit[5], LCD_bit[4], LCD_bit[3], LCD_bit[2], LCD_bit[1], LCD_bit[0] } <= 'hff_ff_ff_ff_ff_ff;
 			LED_out <= 3'b111;
 		end
 		else begin
@@ -728,7 +756,8 @@ parameter PRIOD_WIDTH = 15;
 					'd0 : rld_reg <= indata[WIDTH-1:0];
 					'd2 : {tmr_IE , tmr_en} <= indata[1:0];
 					'd4 : LED_out <= indata[2:0];
-					'd6 : { LCD_bit[2][1:0] , LCD_bit[1] , LCD_bit[0] } <= indata[7:0];
+					'd6 : { LCD_bit[2], LCD_bit[1], LCD_bit[0] } <= { indata[22:16],indata[14:8],indata[6:0] };
+					'd7 : { LCD_bit[5], LCD_bit[4], LCD_bit[3] } <= { indata[22:16],indata[14:8],indata[6:0] };
 				endcase
 			end
 		end
@@ -772,125 +801,6 @@ parameter PRIOD_WIDTH = 15;
 	end
     /* end of timer circuit */
 
-endmodule
-
-/* Simple UART send data */
-module suart_tx( input wire [7:0] tx_data , input wire clk , rst , we , output wire tx_empty,tx_serial );
-	parameter UART_DIV = 8'd234; //(27MHz/115200boud)
-
-	reg [9:0] tx_sreg;
-	reg [7:0] div_count;
-	reg [3:0] send_count;
-	
-	always @( posedge clk or negedge rst ) begin // uart send timing tick
-		if( ~rst ) begin
-			div_count <= UART_DIV;
-		end
-		else begin
-			if( (div_count == 8'd0) || (tx_empty&we) ) div_count <= UART_DIV;
-			else div_count <= div_count - 8'd1;
-		end
-	end
-	
-	always @( posedge clk or negedge rst ) begin // send data
-		if( ~rst ) begin
-			tx_sreg <= 10'b11_1111_1111;
-		end
-		else begin
-			if( tx_empty&we ) tx_sreg <= { 1'b1 , tx_data , 1'b0 };
-			else if( div_count == 8'd0 ) tx_sreg <= { 1'b1 , tx_sreg[9:1] };
-		end
-	end
-	
-	assign tx_serial = tx_sreg[0];
-
-	always @(posedge clk or negedge rst ) begin // counting how many bits send
-		if( ~rst ) begin
-			send_count <= 4'd0;
-		end
-		else begin
-			if( tx_empty&we ) send_count <= 4'd10;
-			else if( (div_count == 8'd0) && (send_count > 4'd0) ) send_count <= send_count - 4'd1;
-		end
-	end
-	
-	assign tx_empty = (send_count == 5'd0);
-
-endmodule
-
-/* Simple UART reciev data */
-module suart_rx( input wire clk , rst , rd , rx_serial, output reg [7:0] buf_rx , output reg valid_data );
-	parameter UART_DIV = 9'd234; //(27MHz/115200boud)
-	parameter UART_FST = (UART_DIV >> 1);
-
-	reg [7:0] rx_data;
-	reg [8:0] div_count;
-	reg [3:0] rcv_count;
-	reg [2:0] serial_in;
-	reg       rcv_edge;
-
-	always @( posedge clk or negedge rst ) begin // serial signal anti metastable and detect start bit
-		if( ~rst ) serial_in <= 'd0;//{3{rx_serial}};
-		else serial_in <= { serial_in[1:0] , rx_serial };
-	end
-
-	always @( posedge clk or negedge rst ) begin // uart read timing tick
-		if( ~rst ) begin
-			div_count <= UART_DIV;
-		end
-		else begin
-			if( serial_in[2:1] == 2'b10 && rcv_count == 4'd0 ) div_count <= UART_FST;
-			else if( div_count == 8'd0 ) div_count <= UART_DIV;
-			else div_count <= div_count - 8'd1;
-		end
-	end
-
-	always @( posedge clk or negedge rst ) begin // counting how many bytes read
-		if( ~rst ) begin
-			rcv_count <= 4'd0;
-		end
-		else begin
-			if( serial_in[2:1] == 2'b10 && rcv_count == 4'd0 ) rcv_count <= 4'd10;
-			else if( div_count == 8'd0 && rcv_count > 4'd0  ) rcv_count <= rcv_count - 4'd1;
-		end
-	end
-	
-	always @( posedge clk or negedge rst ) begin // data reading
-		if( ~rst ) begin
-			rx_data <= 8'd0;
-		end
-		else begin
-			if( div_count == 8'd0 && rcv_count > 4'd1  ) rx_data <= { serial_in[1] , rx_data[7:1] };
-		end
-	end
-	
-	always @( posedge clk or negedge rst ) begin // detect lsb bit
-		if( ~rst ) begin
-			rcv_edge <= 1'b0;
-		end
-		else begin
-			rcv_edge <= (rcv_count == 4'd1);
-		end
-	end
-	
-	always @( posedge clk or negedge rst ) begin // notice reading data is finished
-		if( ~rst ) begin
-		 valid_data <= 1'b0;
-		end
-		else begin
-			if( (rcv_count == 4'd1) && (rcv_edge == 1'b0) ) valid_data <= 1'b1;
-			else if( rd ) valid_data <= 1'b0;
-		end
-	end
-	
-	always @( posedge clk or negedge rst ) begin // notice reading data is finished
-		if( ~rst ) begin
-		 buf_rx <= 'd0;
-		end
-		else begin
-			if( (rcv_count == 4'd1) && (rcv_edge == 1'b0) ) buf_rx <= rx_data;
-		end
-	end
 endmodule
 
 /* data transfer control amang cpu,memory,peripherals */
@@ -954,15 +864,22 @@ endmodule
 /* top module of minimum risc-v system */
 module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 				output wire [2:0] FullColor_LED
-                ,output wire [6:0] LCD_out );
+                ,output wire [21:0] LCD_out );
 
 	parameter INSTRUCTION_RESET_VECTOR = 32'h0000_0000;
 	parameter RAM_SIZE = 4; // UNIT : kbyte
 	parameter INSTRUCTION_ADDRESS_WIDTH = $clog2(RAM_SIZE*1024) - 2 ;
-	parameter WRITE_CYC_OPTIMIZE = 0;
+	parameter WRITE_CYC_OPTIMIZE = 1;
 	parameter MEMORY_TYPE = 0;
 	parameter LOAD_FILE = "test.hex" ;
-	
+
+//    `include "SelPara.v"
+    parameter MTVAL_C = 12'h102;
+    parameter XD_C = 16'h2130;
+    parameter CN_C = 18'o015342;
+    parameter PCSEL_C = 6'o10;
+    parameter CSR_C = 12'o2130;
+
 	wire	[31:0]	PRDATA1,PRDATA2;
 	wire				PSEL1,PSEL2,INT_S;
 	wire	[31:0]	inst_addr,inst_data;
@@ -979,7 +896,10 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 
 	riscv32core_rv32i
 	#( .RESET_VECTOR(INSTRUCTION_RESET_VECTOR), .VALID_PC_WIDTH(INSTRUCTION_ADDRESS_WIDTH),
-		.WRITE_CYCLE_OPT(WRITE_CYC_OPTIMIZE), .MEMORY_TYPE(MEMORY_TYPE) ) 
+		.WRITE_CYCLE_OPT(WRITE_CYC_OPTIMIZE), .MEMORY_TYPE(MEMORY_TYPE)
+        ,.REGISTER_EXPRESSION( 0 )
+        ,.MTVAL_CHOICE( MTVAL_C ), .LP_XD_CHOICE( XD_C ), .LP_CN_CHOICE( CN_C )
+        ,.LP_PC_SEL_CHOICE( PCSEL_C ), .LP_CSR_CHOICE( CSR_C )  )
 		cpu1( .reset(reset), .clk(clock) , .NMI_S(1'b0) , .INT_S(INT_S) , 
 			  .inst_addr(inst_addr) , .inst_data(inst_data) ,  
 			  .PADDR(PADDR) , .PRDATA(PRDATA) , .PWDATA(PWDATA) ,
@@ -997,13 +917,13 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 	EXT_RAM  #( .INST_ADDR_WIDTH(INSTRUCTION_ADDRESS_WIDTH) , .LOAD_HEX_FILE(LOAD_FILE),
 					.RAM_SIZE(RAM_SIZE), .MEMORY_TYPE(MEMORY_TYPE) ) 
          ram1( .clk(clock) , .reset(reset) ,
-					.addr1(inst_addr) ,
-					.q1(inst_data) ,
-					.addr2(PADDR) , 
-					.d22(PWDATA2),
-					.q2(PRDATA1),
-					.we2(PENABLE & PSEL1),
-               .wstrb(PSTRB) );
+                .addr1(inst_addr) ,
+                .q1(inst_data) ,
+				.addr2(PADDR) , 
+				.d22(PWDATA2),
+				.q2(PRDATA1),
+				.we2(PENABLE & PSEL1),
+                .wstrb(PSTRB) );
 
 	Super_IO pripheral1(	.clk(clock),
 							.reset(reset) ,
@@ -1015,8 +935,8 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
 							.sw1(sw1),
 							.RGB_LED(LED_wrapper),
 							.LCD(LCD_out),
-                     .tx_serial_out(tx),
-                     .rx_serial_in(rx) );
+                            .tx_serial_out(tx),
+                            .rx_serial_in(rx) );
 endmodule
 
 

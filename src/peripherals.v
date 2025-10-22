@@ -35,8 +35,7 @@ module SimpleOutput
 		else if( cs&wr ) out_port <= wr_data[PORT_WIDTH-1:0];
 	end
 endmodule
-
-
+	
 /* Simple clock ticker */
 module Trig_Generator
 		#(parameter DIV_WIDTH = 8)
@@ -184,7 +183,6 @@ module Timer_A
 	
 endmodule
 
-
 /* Small Watch Dog Timer */
 module WatchDogTimer_A
 			#( parameter TIMER_WIDTH = 16 )
@@ -236,6 +234,7 @@ module WatchDogTimer_B
 	end
 	
 endmodule
+
 
 /* pseudorandom numbers */
 module Random_A (input wire clk, rst, we, rd, input wire [15:0] rand_init, output reg [15:0] random );
@@ -289,7 +288,7 @@ module SimpleFIFO
 	assign empty = current_enpty | empty_shift;
 	assign full = fifo_gauge[FIFO_DEPTH];//(fifo_gauge == (2**FIFO_DEPTH-1));
 
-	always @( posedge clk ) begin
+	always @( posedge clk ) begin 
 		empty_shift <= current_enpty;
 	end
 	always @( posedge clk or negedge rst or posedge clr ) begin
@@ -459,7 +458,10 @@ module UART_RX_A
 	SimpleFIFO #( .FIFO_DEPTH(FIFO_SIZE), .FIFO_DATA_WIDTH(9) ) RX_FIFO 
 	           ( .clk(clk), .rst(rst), .wr(finalize_data), .rd(rd), .clr(clr), .fifo_gauge(), .full(rx_full), 
 				.empty(rx_empty), .in_data( {parity_err_bit , (size)? rx_data[7] : 1'b0 , rx_data[6:0] } ) , .out_data( {parity_err,rx_buf} ) );
+
 endmodule
+
+
 
 /* Small UART send data */
 module UART_TX_B
@@ -484,7 +486,7 @@ module UART_TX_B
 				send_count <= 'd10;
 				tx_sreg <= {  tx_data , 1'b0 };
 			end
-			else if(div_count == 8'd0)begin
+			else if(div_count == 'd0)begin
 				div_count <= UART_DIV;
 				if(send_count > 'd0) send_count <= send_count - 'd1;
 				tx_sreg <= { 1'b1 , tx_sreg[8:1] };
@@ -516,7 +518,7 @@ module UART_RX_B
 	always @( posedge clk or negedge rst ) begin // uart read timing tick
 		if( ~rst ) begin
 			div_count <= UART_DIV;
-			{rcv_count,rx_data} <= 'd0;
+			{ rcv_count, rx_data } <= 'd0;
 		end
 		else begin
 			if( serial_in[2:1] == 2'b10 && rcv_count0 ) begin
