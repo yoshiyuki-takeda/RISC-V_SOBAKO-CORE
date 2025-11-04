@@ -247,7 +247,7 @@ module riscv32core_rv32i( input wire reset,clk,NMI_S,INT_S , input wire [31:0] i
 	assign PSEL = addr_en;
 	generate
 		if( WRITE_CYCLE_OPT == 1 ) begin
-			if( (MEMORY_TYPE == 1)||(MEMORY_TYPE == 2) )
+			if( (MEMORY_TYPE == 1)||(MEMORY_TYPE == 2)||(MEMORY_TYPE == 3) )
 				assign PENABLE = ((CODE_LOAD)?(stg=='d3):(stg=='d2)) & addr_en & (~Jump_e) ;
 			else
 				assign PENABLE = ( (Awidth=='d0|CODE_LOAD)?(stg=='d3):(stg=='d2) ) & addr_en & (~Jump_e);
@@ -605,6 +605,18 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 				if( (we2&wstrb[3]) ) mem3[ ad2 ] <= d22[31:24];
 			end
 
+		end else if( MEMORY_TYPE == 3 ) begin //Quad divided meory for Quartus
+			always @(posedge clk) begin
+				q1 <= { mem3[ad1], mem2[ad1], mem1[ad1], mem0[ad1] };
+			end
+			always @(posedge clk) begin
+				q2 <= { mem3[ad2], mem2[ad2], mem1[ad2], mem0[ad2] };
+				if( (we2&wstrb[0]) ) mem0[ ad2 ] <= d22[ 7: 0];
+				if( (we2&wstrb[1]) ) mem1[ ad2 ] <= d22[15: 8];
+				if( (we2&wstrb[2]) ) mem2[ ad2 ] <= d22[23:16];
+				if( (we2&wstrb[3]) ) mem3[ ad2 ] <= d22[31:24];
+			end
+		
 		end else if( MEMORY_TYPE == 2 ) begin //Quad divided meory using Verilog expression
 			always @(posedge clk) begin
 				q1 <= memA[ ad1 ];
@@ -636,7 +648,7 @@ module EXT_RAM( input wire [31:0] d22, addr1 , addr2 ,
 
 	initial begin  //memory initialize
 		$readmemh( LOAD_HEX_FILE , Load_buffer ); //program read from hex file 
-		if( MEMORY_TYPE == 1 ) begin
+		if( (MEMORY_TYPE == 1)||(MEMORY_TYPE == 3) ) begin
 			for( byte_no = 0 ; byte_no <= MEMORY_CAPA ; byte_no = byte_no + 1 )
 				{ mem3[byte_no], mem2[byte_no], mem1[byte_no], mem0[byte_no] } = Load_buffer[byte_no];
 		end
@@ -938,6 +950,7 @@ module Soc( input wire clock , reset , sw1 , rx , output wire tx ,
                             .tx_serial_out(tx),
                             .rx_serial_in(rx) );
 endmodule
+
 
 
 
