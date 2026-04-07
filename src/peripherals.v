@@ -103,13 +103,36 @@ module PDM_A
 	always @(posedge clk or negedge rst) begin
 		if( !rst ) pdm_counter <= {{1'b0},{(PDM_WIDTH){1'b1}}};
 		else begin
-			if( pdm_en ) if( tick ) pdm_counter <=  { 1'b0,pdm_counter[PDM_WIDTH-1:0] } + { duty };
+			if( pdm_en ) begin
+				if( tick ) pdm_counter <=  { 1'b0,pdm_counter[PDM_WIDTH-1:0] } + { duty };
+			end
 			else pdm_counter <= {{1'b0},{(PDM_WIDTH){1'b1}}};
 		end
 	end
-
 endmodule
 
+/* Simple Pulse Density Modulation */
+module PDM_B
+		#( parameter PDM_WIDTH = 8 ) 
+		(input wire clk, rst , tick , pdm_en , input wire [PDM_WIDTH:0] duty , input wire [PDM_WIDTH-1:0] period , output wire pdm); 
+	reg [PDM_WIDTH-1:0] pdm_counter;
+	wire [PDM_WIDTH+1:0] pdm_add;
+	wire [PDM_WIDTH+2:0] pdm_sub;
+
+	assign pdm_add = { 2'd0, pdm_counter } + { 1'd0, duty };
+	assign pdm_sub = { 1'd0, pdm_add } - { 3'd0,period } ;
+	assign pdm = ~pdm_sub[PDM_WIDTH+2] & pdm_en;
+
+	always @(posedge clk or negedge rst) begin
+		if( !rst ) pdm_counter <= 'd0;
+		else begin
+			if( pdm_en ) begin 
+				if( tick ) pdm_counter <= (pdm) ? pdm_sub[PDM_WIDTH-1:0] : pdm_add[PDM_WIDTH-1:0] ;
+			end
+			else pdm_counter <= period;
+		end
+	end
+endmodule
 
 /* Simple counter */
 module Counter_A
